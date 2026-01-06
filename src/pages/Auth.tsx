@@ -4,14 +4,15 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { Wallet, ArrowRight, Mail, Lock, User } from 'lucide-react';
 import { z } from 'zod';
+import { PasswordStrengthIndicator, validateStrongPassword } from '@/components/auth/PasswordStrengthIndicator';
 
 const emailSchema = z.string().email('Please enter a valid email address');
-const passwordSchema = z.string().min(6, 'Password must be at least 6 characters');
+const passwordSchema = z.string().min(12, 'Password must be at least 12 characters');
 
 export default function Auth() {
   const [email, setEmail] = useState('');
@@ -29,7 +30,7 @@ export default function Auth() {
     }
   }, [user, navigate]);
 
-  const validateForm = () => {
+  const validateForm = (isSignUp = false) => {
     const newErrors: { email?: string; password?: string } = {};
     
     const emailResult = emailSchema.safeParse(email);
@@ -37,9 +38,18 @@ export default function Auth() {
       newErrors.email = emailResult.error.errors[0].message;
     }
     
-    const passwordResult = passwordSchema.safeParse(password);
-    if (!passwordResult.success) {
-      newErrors.password = passwordResult.error.errors[0].message;
+    if (isSignUp) {
+      // Stronger validation for signup
+      const passwordValidation = validateStrongPassword(password);
+      if (!passwordValidation.valid) {
+        newErrors.password = passwordValidation.message;
+      }
+    } else {
+      // Basic validation for signin (just check not empty)
+      const passwordResult = passwordSchema.safeParse(password);
+      if (!passwordResult.success) {
+        newErrors.password = passwordResult.error.errors[0].message;
+      }
     }
     
     setErrors(newErrors);
@@ -48,7 +58,7 @@ export default function Auth() {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) return;
+    if (!validateForm(false)) return;
     
     setIsLoading(true);
     const { error } = await signIn(email, password);
@@ -68,7 +78,7 @@ export default function Auth() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) return;
+    if (!validateForm(true)) return;
     
     setIsLoading(true);
     const { error } = await signUp(email, password, displayName);
@@ -191,13 +201,14 @@ export default function Auth() {
                       <Input
                         id="signup-password"
                         type="password"
-                        placeholder="••••••••"
+                        placeholder="Create a strong password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         className="pl-10"
                         required
                       />
                     </div>
+                    <PasswordStrengthIndicator password={password} />
                     {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
                   </div>
                 </CardContent>
