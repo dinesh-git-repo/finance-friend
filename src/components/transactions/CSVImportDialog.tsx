@@ -32,7 +32,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
-import { Upload, FileText, AlertCircle, CheckCircle2, Download, ChevronDown, ChevronRight } from 'lucide-react';
+import { Upload, FileText, AlertCircle, CheckCircle2, Download, ChevronDown, ChevronRight, ChevronLeft } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
 
@@ -51,6 +51,7 @@ interface CSVImportDialogProps {
 }
 
 interface ParsedTransaction {
+  rowIndex: number; // CSV row number (1-indexed, after header)
   transaction_date: string;
   day?: string;
   amount: number;
@@ -125,7 +126,10 @@ export default function CSVImportDialog({
   const [isImporting, setIsImporting] = useState(false);
   const [fileName, setFileName] = useState('');
   const [expandedError, setExpandedError] = useState<string | null>(null);
+  const [errorPages, setErrorPages] = useState<Record<string, number>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const ROWS_PER_PAGE = 5;
 
   const normalizeHeader = (header: string): string => {
     const normalized = header.toLowerCase().replace(/[\s_-]+/g, '');
@@ -173,6 +177,7 @@ export default function CSVImportDialog({
       }
 
       transactions.push({
+        rowIndex: i + 1, // CSV row number (1-indexed, header is row 1)
         transaction_date: row.transaction_date,
         day: row.day || undefined,
         amount: parseFloat(row.amount) || 0,
@@ -327,17 +332,17 @@ export default function CSVImportDialog({
   const validCount = parsedData.filter(t => t.isValid).length;
   const invalidCount = parsedData.length - validCount;
 
-  // Aggregate errors for summary with row numbers
+  // Aggregate errors with full transaction data
   const errorDetails = useMemo(() => {
-    const details: Record<string, { count: number; rows: number[] }> = {};
-    parsedData.forEach((t, index) => {
+    const details: Record<string, { count: number; transactions: ParsedTransaction[] }> = {};
+    parsedData.forEach((t) => {
       if (!t.isValid) {
         t.errors.forEach(error => {
           if (!details[error]) {
-            details[error] = { count: 0, rows: [] };
+            details[error] = { count: 0, transactions: [] };
           }
           details[error].count += 1;
-          details[error].rows.push(index + 2); // +2 because: +1 for 0-index, +1 for header row
+          details[error].transactions.push(t);
         });
       }
     });
@@ -346,6 +351,22 @@ export default function CSVImportDialog({
 
   const sortedErrors = Object.entries(errorDetails)
     .sort((a, b) => b[1].count - a[1].count);
+
+  const getErrorPage = (error: string) => errorPages[error] || 0;
+  
+  const setErrorPage = (error: string, page: number) => {
+    setErrorPages(prev => ({ ...prev, [error]: page }));
+  };
+
+  // Helper to determine if a field has an error
+  const getFieldError = (error: string): string | null => {
+    if (error.includes('Date')) return 'date';
+    if (error.includes('amount')) return 'amount';
+    if (error.includes('Type must be')) return 'type';
+    if (error.includes('Invalid mode')) return 'mode';
+    if (error.includes('Invalid nature')) return 'nature';
+    return null;
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -460,53 +481,122 @@ export default function CSVImportDialog({
                     <h5 className="font-medium text-expense">Error Summary</h5>
                   </div>
                   <p className="text-sm text-muted-foreground mb-3">
-                    {invalidCount} rows have issues. Click on an error to see affected row numbers:
+                    {invalidCount} rows have issues. Click on an error to see affected rows:
                   </p>
                   <div className="space-y-1">
-                    {sortedErrors.map(([error, { count, rows }]) => (
-                      <Collapsible 
-                        key={error} 
-                        open={expandedError === error}
-                        onOpenChange={(open) => setExpandedError(open ? error : null)}
-                      >
-                        <CollapsibleTrigger className="w-full">
-                          <div className="flex items-center justify-between text-sm bg-background/50 hover:bg-background/80 rounded px-3 py-2 transition-colors cursor-pointer">
-                            <div className="flex items-center gap-2">
-                              {expandedError === error ? (
-                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                              )}
-                              <span className="text-foreground text-left">{error}</span>
-                            </div>
-                            <Badge variant="outline" className="text-expense border-expense/30 ml-2 shrink-0">
-                              {count} rows
-                            </Badge>
-                          </div>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <div className="ml-6 mt-1 p-3 bg-background/30 rounded-md border border-border/50">
-                            <p className="text-xs text-muted-foreground mb-2">
-                              Row numbers in your CSV file (including header):
-                            </p>
-                            <ScrollArea className="max-h-24">
-                              <div className="flex flex-wrap gap-1">
-                                {rows.slice(0, 100).map((row) => (
-                                  <Badge key={row} variant="secondary" className="text-xs font-mono">
-                                    {row}
-                                  </Badge>
-                                ))}
-                                {rows.length > 100 && (
-                                  <Badge variant="secondary" className="text-xs">
-                                    +{rows.length - 100} more
-                                  </Badge>
+                    {sortedErrors.map(([error, { count, transactions: errorTxns }]) => {
+                      const currentPage = getErrorPage(error);
+                      const totalPages = Math.ceil(errorTxns.length / ROWS_PER_PAGE);
+                      const startIdx = currentPage * ROWS_PER_PAGE;
+                      const visibleTxns = errorTxns.slice(startIdx, startIdx + ROWS_PER_PAGE);
+                      const errorField = getFieldError(error);
+                      
+                      return (
+                        <Collapsible 
+                          key={error} 
+                          open={expandedError === error}
+                          onOpenChange={(open) => {
+                            setExpandedError(open ? error : null);
+                            if (open) setErrorPage(error, 0);
+                          }}
+                        >
+                          <CollapsibleTrigger className="w-full">
+                            <div className="flex items-center justify-between text-sm bg-background/50 hover:bg-background/80 rounded px-3 py-2 transition-colors cursor-pointer">
+                              <div className="flex items-center gap-2">
+                                {expandedError === error ? (
+                                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
                                 )}
+                                <span className="text-foreground text-left">{error}</span>
                               </div>
-                            </ScrollArea>
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    ))}
+                              <Badge variant="outline" className="text-expense border-expense/30 ml-2 shrink-0">
+                                {count} rows
+                              </Badge>
+                            </div>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <div className="ml-6 mt-1 bg-background/30 rounded-md border border-border/50 overflow-hidden">
+                              {/* Mini table showing error rows */}
+                              <Table>
+                                <TableHeader>
+                                  <TableRow className="text-xs">
+                                    <TableHead className="py-2 px-3 w-14">Row</TableHead>
+                                    <TableHead className={`py-2 px-3 ${errorField === 'date' ? 'bg-expense/10' : ''}`}>Date</TableHead>
+                                    <TableHead className={`py-2 px-3 ${errorField === 'amount' ? 'bg-expense/10' : ''}`}>Amount</TableHead>
+                                    <TableHead className={`py-2 px-3 ${errorField === 'type' ? 'bg-expense/10' : ''}`}>Type</TableHead>
+                                    <TableHead className="py-2 px-3">Description</TableHead>
+                                    <TableHead className={`py-2 px-3 ${errorField === 'mode' ? 'bg-expense/10' : ''}`}>Mode</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {visibleTxns.map((t) => (
+                                    <TableRow key={t.rowIndex} className="text-xs">
+                                      <TableCell className="py-1.5 px-3 font-mono text-muted-foreground">
+                                        {t.rowIndex + 1}
+                                      </TableCell>
+                                      <TableCell className={`py-1.5 px-3 font-mono ${errorField === 'date' ? 'bg-expense/10 text-expense font-medium' : ''}`}>
+                                        {t.transaction_date || <span className="text-expense italic">empty</span>}
+                                      </TableCell>
+                                      <TableCell className={`py-1.5 px-3 font-mono ${errorField === 'amount' ? 'bg-expense/10 text-expense font-medium' : ''}`}>
+                                        {t.amount || <span className="text-expense italic">empty</span>}
+                                      </TableCell>
+                                      <TableCell className={`py-1.5 px-3 ${errorField === 'type' ? 'bg-expense/10 text-expense font-medium' : ''}`}>
+                                        {t.transaction_type || <span className="text-expense italic">empty</span>}
+                                      </TableCell>
+                                      <TableCell className="py-1.5 px-3 max-w-[120px] truncate">
+                                        {t.description || t.party || '-'}
+                                      </TableCell>
+                                      <TableCell className={`py-1.5 px-3 ${errorField === 'mode' ? 'bg-expense/10 text-expense font-medium' : ''}`}>
+                                        {t.transaction_mode || '-'}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                              
+                              {/* Pagination */}
+                              {totalPages > 1 && (
+                                <div className="flex items-center justify-between px-3 py-2 border-t text-xs text-muted-foreground">
+                                  <span>
+                                    Showing {startIdx + 1}-{Math.min(startIdx + ROWS_PER_PAGE, errorTxns.length)} of {errorTxns.length}
+                                  </span>
+                                  <div className="flex items-center gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setErrorPage(error, Math.max(0, currentPage - 1));
+                                      }}
+                                      disabled={currentPage === 0}
+                                    >
+                                      <ChevronLeft className="h-4 w-4" />
+                                    </Button>
+                                    <span className="px-2">
+                                      {currentPage + 1} / {totalPages}
+                                    </span>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setErrorPage(error, Math.min(totalPages - 1, currentPage + 1));
+                                      }}
+                                      disabled={currentPage >= totalPages - 1}
+                                    >
+                                      <ChevronRight className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      );
+                    })}
                   </div>
                   <p className="text-xs text-muted-foreground mt-3">
                     💡 Tip: Fix these issues in your CSV file and re-upload. Valid rows ({validCount}) can still be imported.
