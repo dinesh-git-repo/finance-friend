@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -20,36 +20,63 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Plus, Wallet, Building2, CreditCard, PiggyBank, Smartphone, TrendingUp, Landmark, Shield, Trash2 } from 'lucide-react';
+import { Plus, Wallet, Building2, CreditCard, PiggyBank, Smartphone, TrendingUp, Landmark, Trash2, Banknote, CircleDollarSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Database } from '@/integrations/supabase/types';
 
-type AccountType = Database['public']['Enums']['account_type'];
+// Use string literals since enums are being updated
+type AccountType = 'Bank Account' | 'Credit Card' | 'Cash' | 'Demat' | 'Loan' | 'Overdraft' | 'Wallet' | 'BNPL';
+type CardNetwork = 'Visa' | 'Mastercard' | 'Rupay' | 'Amex' | 'Diners' | 'Discover' | 'JCB' | 'Other';
 
 const accountTypeOptions: { value: AccountType; label: string; icon: typeof Wallet }[] = [
-  { value: 'Cash', label: 'Cash', icon: Wallet },
   { value: 'Bank Account', label: 'Bank Account', icon: Building2 },
-  { value: 'Savings Account', label: 'Savings Account', icon: PiggyBank },
-  { value: 'Salary Account', label: 'Salary Account', icon: Landmark },
   { value: 'Credit Card', label: 'Credit Card', icon: CreditCard },
+  { value: 'Cash', label: 'Cash', icon: Wallet },
+  { value: 'Demat', label: 'Demat Account', icon: TrendingUp },
+  { value: 'Loan', label: 'Loan', icon: Landmark },
+  { value: 'Overdraft', label: 'Overdraft', icon: Banknote },
   { value: 'Wallet', label: 'Digital Wallet', icon: Smartphone },
-  { value: 'Demat Account', label: 'Demat Account', icon: TrendingUp },
-  { value: 'Loan Account', label: 'Loan Account', icon: Landmark },
-  { value: 'Insurance Account', label: 'Insurance Account', icon: Shield },
+  { value: 'BNPL', label: 'Buy Now Pay Later', icon: CircleDollarSign },
+];
+
+const cardNetworkOptions: { value: CardNetwork; label: string }[] = [
+  { value: 'Visa', label: 'Visa' },
+  { value: 'Mastercard', label: 'Mastercard' },
+  { value: 'Rupay', label: 'RuPay' },
+  { value: 'Amex', label: 'American Express' },
+  { value: 'Diners', label: 'Diners Club' },
+  { value: 'Discover', label: 'Discover' },
+  { value: 'JCB', label: 'JCB' },
+  { value: 'Other', label: 'Other' },
 ];
 
 interface AccountFormData {
-  name: string;
+  account_name: string;
   account_type: AccountType;
-  balance: string;
+  opening_balance: string;
   currency: string;
+  issuer_name: string;
+  account_number: string;
+  account_variant: string;
+  card_network: CardNetwork | '';
+  network_variant: string;
+  credit_limit: string;
+  statement_day: string;
+  repayment_day: string;
 }
 
 const initialFormData: AccountFormData = {
-  name: '',
+  account_name: '',
   account_type: 'Bank Account',
-  balance: '0',
+  opening_balance: '0',
   currency: 'INR',
+  issuer_name: '',
+  account_number: '',
+  account_variant: '',
+  card_network: '',
+  network_variant: '',
+  credit_limit: '',
+  statement_day: '',
+  repayment_day: '',
 };
 
 export default function Accounts() {
@@ -75,7 +102,7 @@ export default function Accounts() {
         .from('accounts')
         .select('*')
         .eq('user_id', user.id)
-        .order('name');
+        .order('account_name');
 
       if (error) throw error;
       setAccounts(data || []);
@@ -94,15 +121,24 @@ export default function Accounts() {
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase
-        .from('accounts')
-        .insert({
-          user_id: user.id,
-          name: formData.name,
-          account_type: formData.account_type,
-          balance: parseFloat(formData.balance) || 0,
-          currency: formData.currency,
-        });
+      const insertData: any = {
+        user_id: user.id,
+        account_name: formData.account_name,
+        account_type: formData.account_type,
+        opening_balance: parseFloat(formData.opening_balance) || 0,
+        closing_balance: parseFloat(formData.opening_balance) || 0,
+        currency: formData.currency,
+        issuer_name: formData.issuer_name || null,
+        account_number: formData.account_number || null,
+        account_variant: formData.account_variant || null,
+        card_network: formData.card_network || null,
+        network_variant: formData.network_variant || null,
+        credit_limit: formData.credit_limit ? parseFloat(formData.credit_limit) : null,
+        statement_day: formData.statement_day ? parseInt(formData.statement_day) : null,
+        repayment_day: formData.repayment_day ? parseInt(formData.repayment_day) : null,
+      };
+
+      const { error } = await supabase.from('accounts').insert(insertData);
 
       if (error) throw error;
 
@@ -142,7 +178,8 @@ export default function Accounts() {
     return option?.icon || Wallet;
   };
 
-  const totalBalance = accounts.reduce((sum, acc) => sum + Number(acc.balance), 0);
+  const totalBalance = accounts.reduce((sum, acc) => sum + Number(acc.closing_balance || 0), 0);
+  const showCardFields = formData.account_type === 'Credit Card' || formData.account_type === 'BNPL';
 
   return (
     <div className="space-y-6">
@@ -158,42 +195,141 @@ export default function Accounts() {
               Add Account
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Add New Account</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label>Account Name</Label>
-                <Input
-                  placeholder="e.g., HDFC Savings"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2 col-span-2">
+                  <Label>Account Name *</Label>
+                  <Input
+                    placeholder="e.g., HDFC Savings"
+                    value={formData.account_name}
+                    onChange={(e) => setFormData({ ...formData, account_name: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Account Type *</Label>
+                  <Select
+                    value={formData.account_type}
+                    onValueChange={(value: AccountType) => setFormData({ ...formData, account_type: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {accountTypeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          <div className="flex items-center gap-2">
+                            <option.icon className="h-4 w-4" />
+                            {option.label}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Issuer / Bank Name</Label>
+                  <Input
+                    placeholder="e.g., HDFC Bank"
+                    value={formData.issuer_name}
+                    onChange={(e) => setFormData({ ...formData, issuer_name: e.target.value })}
+                  />
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label>Account Type</Label>
-                <Select
-                  value={formData.account_type}
-                  onValueChange={(value: AccountType) => setFormData({ ...formData, account_type: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accountTypeOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        <div className="flex items-center gap-2">
-                          <option.icon className="h-4 w-4" />
-                          {option.label}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Account Number (last 4)</Label>
+                  <Input
+                    placeholder="e.g., 1234"
+                    value={formData.account_number}
+                    onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
+                    maxLength={10}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Product Variant</Label>
+                  <Input
+                    placeholder="e.g., Regalia, Platinum"
+                    value={formData.account_variant}
+                    onChange={(e) => setFormData({ ...formData, account_variant: e.target.value })}
+                  />
+                </div>
               </div>
+
+              {showCardFields && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Card Network</Label>
+                      <Select
+                        value={formData.card_network}
+                        onValueChange={(value: CardNetwork) => setFormData({ ...formData, card_network: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select network" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {cardNetworkOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Network Variant</Label>
+                      <Input
+                        placeholder="e.g., Signature, Infinite"
+                        value={formData.network_variant}
+                        onChange={(e) => setFormData({ ...formData, network_variant: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Credit Limit</Label>
+                      <Input
+                        type="number"
+                        step="1"
+                        placeholder="0"
+                        value={formData.credit_limit}
+                        onChange={(e) => setFormData({ ...formData, credit_limit: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Statement Day</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="31"
+                        placeholder="1-31"
+                        value={formData.statement_day}
+                        onChange={(e) => setFormData({ ...formData, statement_day: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Due Day</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="31"
+                        placeholder="1-31"
+                        value={formData.repayment_day}
+                        onChange={(e) => setFormData({ ...formData, repayment_day: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -202,8 +338,8 @@ export default function Accounts() {
                     type="number"
                     step="0.01"
                     placeholder="0.00"
-                    value={formData.balance}
-                    onChange={(e) => setFormData({ ...formData, balance: e.target.value })}
+                    value={formData.opening_balance}
+                    onChange={(e) => setFormData({ ...formData, opening_balance: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -285,7 +421,8 @@ export default function Accounts() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {accounts.map((account) => {
             const Icon = getAccountIcon(account.account_type);
-            const isNegative = account.balance < 0;
+            const balance = account.closing_balance ?? account.opening_balance ?? 0;
+            const isNegative = balance < 0;
 
             return (
               <Card key={account.id} className="border-border/50 hover:border-border transition-colors">
@@ -296,13 +433,15 @@ export default function Accounts() {
                         <Icon className="h-6 w-6" />
                       </div>
                       <div>
-                        <h3 className="font-medium">{account.name}</h3>
-                        <p className="text-sm text-muted-foreground">{account.account_type}</p>
+                        <h3 className="font-medium">{account.account_name}</h3>
+                        <p className="text-sm text-muted-foreground">
+                          {account.issuer_name ? `${account.issuer_name} · ` : ''}{account.account_type}
+                        </p>
                         <p className={cn(
                           "text-xl font-mono font-semibold mt-2",
                           isNegative ? "text-expense" : "text-foreground"
                         )}>
-                          ₹{Math.abs(account.balance).toLocaleString('en-IN')}
+                          ₹{Math.abs(balance).toLocaleString('en-IN')}
                         </p>
                       </div>
                     </div>
