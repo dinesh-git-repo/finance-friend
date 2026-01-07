@@ -31,14 +31,16 @@ import {
 } from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Upload, FileText, AlertCircle, CheckCircle2, Download, ChevronDown, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Upload, FileText, AlertCircle, CheckCircle2, Download, ChevronDown, ChevronRight, ChevronLeft, Plus, Wallet, Tag, FolderOpen } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
 
 type TransactionType = Database['public']['Enums']['transaction_type'];
 type TransactionMode = Database['public']['Enums']['transaction_mode'];
 type TransactionNature = Database['public']['Enums']['transaction_nature'];
+type AccountType = Database['public']['Enums']['account_type'];
 
 interface CSVImportDialogProps {
   userId: string;
@@ -72,6 +74,12 @@ interface ParsedTransaction {
   errors: string[];
 }
 
+interface NewEntity {
+  name: string;
+  type: 'account' | 'category' | 'tag' | 'group';
+  selected: boolean;
+}
+
 // Header mapping from user's CSV format to our internal format
 const HEADER_MAP: Record<string, string> = {
   'txnid': 'txn_id', // ignored during import
@@ -103,6 +111,8 @@ const HEADER_MAP: Record<string, string> = {
   'party': 'party',
 };
 
+const DEFAULT_ACCOUNT_TYPE: AccountType = 'Bank Account';
+
 const VALID_TRANSACTION_TYPES: TransactionType[] = ['Debit', 'Credit'];
 const VALID_MODES: TransactionMode[] = ['UPI', 'NEFT', 'IMPS', 'RTGS', 'Cheque', 'BBPS', 'EMI', 'Cash', 'Card', 'ACH', 'Other'];
 const VALID_NATURES: TransactionNature[] = ['Money Transfer', 'Auto Sweep', 'System Charge', 'Charge', 'Reversal', 'Rewards', 'Purchase', 'Income', 'Other'];
@@ -114,14 +124,19 @@ const SAMPLE_CSV = `txnID,txnDate,txnDay,bankRemarks,amount,currency,txnType,acc
 
 export default function CSVImportDialog({ 
   userId, 
-  accounts, 
-  categories, 
+  accounts: initialAccounts, 
+  categories: initialCategories, 
   subcategories,
-  tags,
-  groups,
+  tags: initialTags,
+  groups: initialGroups,
   onImportComplete 
 }: CSVImportDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [accounts, setAccounts] = useState(initialAccounts);
+  const [categories, setCategories] = useState(initialCategories);
+  const [tags, setTags] = useState(initialTags);
+  const [groups, setGroups] = useState(initialGroups);
+  const [newEntities, setNewEntities] = useState<NewEntity[]>([]);
   const [parsedData, setParsedData] = useState<ParsedTransaction[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [fileName, setFileName] = useState('');
@@ -282,8 +297,16 @@ export default function CSVImportDialog({
       const parsed = parseCSV(content);
       setParsedData(parsed);
 
+      // Detect new entities that don't exist
+      const detected = detectNewEntities(parsed);
+      setNewEntities(detected);
+
       const validCount = parsed.filter(t => t.isValid).length;
       const invalidCount = parsed.length - validCount;
+
+      if (detected.length > 0) {
+        toast.info(`Found ${detected.length} new items to create`);
+      }
 
       if (invalidCount > 0) {
         toast.warning(`${validCount} valid, ${invalidCount} with errors`);
@@ -292,6 +315,153 @@ export default function CSVImportDialog({
       }
     };
     reader.readAsText(file);
+  };
+
+  const detectNewEntities = (transactions: ParsedTransaction[]): NewEntity[] => {
+    const entities: NewEntity[] = [];
+    const seen = new Set<string>();
+
+    transactions.forEach(t => {
+      // Check for new accounts
+      if (t.account_name) {
+        const key = `account:${t.account_name.toLowerCase()}`;
+        if (!seen.has(key)) {
+          const exists = accounts.some(a => a.name.toLowerCase() === t.account_name!.toLowerCase());
+          if (!exists) {
+            entities.push({ name: t.account_name, type: 'account', selected: true });
+            seen.add(key);
+          }
+        }
+      }
+
+      // Check for new categories
+      if (t.category_name) {
+        const key = `category:${t.category_name.toLowerCase()}`;
+        if (!seen.has(key)) {
+          const exists = categories.some(c => c.name.toLowerCase() === t.category_name!.toLowerCase());
+          if (!exists) {
+            entities.push({ name: t.category_name, type: 'category', selected: true });
+            seen.add(key);
+          }
+        }
+      }
+
+      // Check for new tags
+      if (t.tag_name) {
+        const key = `tag:${t.tag_name.toLowerCase()}`;
+        if (!seen.has(key)) {
+          const exists = tags.some(tg => tg.name.toLowerCase() === t.tag_name!.toLowerCase());
+          if (!exists) {
+            entities.push({ name: t.tag_name, type: 'tag', selected: true });
+            seen.add(key);
+          }
+        }
+      }
+
+      // Check for new groups
+      if (t.group_name) {
+        const key = `group:${t.group_name.toLowerCase()}`;
+        if (!seen.has(key)) {
+          const exists = groups.some(g => g.name.toLowerCase() === t.group_name!.toLowerCase());
+          if (!exists) {
+            entities.push({ name: t.group_name, type: 'group', selected: true });
+            seen.add(key);
+          }
+        }
+      }
+    });
+
+    return entities;
+  };
+
+  const toggleEntity = (index: number) => {
+    setNewEntities(prev => prev.map((e, i) => 
+      i === index ? { ...e, selected: !e.selected } : e
+    ));
+  };
+
+  const createNewEntities = async (): Promise<boolean> => {
+    const selected = newEntities.filter(e => e.selected);
+    if (selected.length === 0) return true;
+
+    try {
+      // Create accounts
+      const newAccountsToCreate = selected.filter(e => e.type === 'account');
+      if (newAccountsToCreate.length > 0) {
+        const { data: createdAccounts, error } = await supabase
+          .from('accounts')
+          .insert(newAccountsToCreate.map(a => ({
+            user_id: userId,
+            name: a.name,
+            account_type: DEFAULT_ACCOUNT_TYPE,
+            balance: 0,
+          })))
+          .select('id, name');
+        
+        if (error) throw error;
+        if (createdAccounts) {
+          setAccounts(prev => [...prev, ...createdAccounts]);
+        }
+      }
+
+      // Create categories
+      const newCategoriesToCreate = selected.filter(e => e.type === 'category');
+      if (newCategoriesToCreate.length > 0) {
+        const { data: createdCategories, error } = await supabase
+          .from('categories')
+          .insert(newCategoriesToCreate.map(c => ({
+            user_id: userId,
+            name: c.name,
+            is_system: false,
+          })))
+          .select('id, name');
+        
+        if (error) throw error;
+        if (createdCategories) {
+          setCategories(prev => [...prev, ...createdCategories]);
+        }
+      }
+
+      // Create tags
+      const newTagsToCreate = selected.filter(e => e.type === 'tag');
+      if (newTagsToCreate.length > 0) {
+        const { data: createdTags, error } = await supabase
+          .from('tags')
+          .insert(newTagsToCreate.map(t => ({
+            user_id: userId,
+            name: t.name,
+          })))
+          .select('id, name');
+        
+        if (error) throw error;
+        if (createdTags) {
+          setTags(prev => [...prev, ...createdTags]);
+        }
+      }
+
+      // Create groups
+      const newGroupsToCreate = selected.filter(e => e.type === 'group');
+      if (newGroupsToCreate.length > 0) {
+        const { data: createdGroups, error } = await supabase
+          .from('transaction_groups')
+          .insert(newGroupsToCreate.map(g => ({
+            user_id: userId,
+            name: g.name,
+          })))
+          .select('id, name');
+        
+        if (error) throw error;
+        if (createdGroups) {
+          setGroups(prev => [...prev, ...createdGroups]);
+        }
+      }
+
+      return true;
+    } catch (error: any) {
+      console.error('Error creating entities:', error);
+      toast.error(`Failed to create items: ${error.message}`);
+      return false;
+    }
   };
 
   const handleImport = async () => {
@@ -304,6 +474,12 @@ export default function CSVImportDialog({
     setIsImporting(true);
 
     try {
+      // First, create any new entities that were selected
+      const entitiesCreated = await createNewEntities();
+      if (!entitiesCreated) {
+        setIsImporting(false);
+        return;
+      }
       const transactionsToInsert = validTransactions.map(t => {
         // Lookup IDs by name (case-insensitive)
         const account = accounts.find(a => 
@@ -352,6 +528,7 @@ export default function CSVImportDialog({
       setIsOpen(false);
       setParsedData([]);
       setFileName('');
+      setNewEntities([]);
       if (fileInputRef.current) fileInputRef.current.value = '';
       onImportComplete();
     } catch (error: any) {
@@ -643,6 +820,48 @@ export default function CSVImportDialog({
                   </div>
                   <p className="text-xs text-muted-foreground mt-3">
                     💡 Tip: Fix these issues in your CSV file and re-upload. Valid rows ({validCount}) can still be imported.
+                  </p>
+                </div>
+              )}
+
+              {/* New Entities to Create */}
+              {newEntities.length > 0 && (
+                <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Plus className="h-5 w-5 text-primary" />
+                    <h5 className="font-medium text-primary">New Items to Create</h5>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    These items from your CSV don't exist yet. Select which ones to create automatically:
+                  </p>
+                  <div className="grid gap-2">
+                    {newEntities.map((entity, index) => {
+                      const Icon = entity.type === 'account' ? Wallet : 
+                                   entity.type === 'category' ? FolderOpen : 
+                                   entity.type === 'tag' ? Tag : FolderOpen;
+                      const typeLabel = entity.type.charAt(0).toUpperCase() + entity.type.slice(1);
+                      
+                      return (
+                        <div 
+                          key={`${entity.type}-${entity.name}`}
+                          className="flex items-center gap-3 bg-background/50 hover:bg-background/80 rounded px-3 py-2 transition-colors cursor-pointer"
+                          onClick={() => toggleEntity(index)}
+                        >
+                          <Checkbox 
+                            checked={entity.selected} 
+                            onCheckedChange={() => toggleEntity(index)}
+                          />
+                          <Icon className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">{entity.name}</span>
+                          <Badge variant="outline" className="ml-auto text-xs">
+                            {typeLabel}
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    ✨ Selected items will be created when you click Import.
                   </p>
                 </div>
               )}
