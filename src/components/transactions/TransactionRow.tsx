@@ -43,6 +43,8 @@ interface TransactionRowProps {
     party?: string;
     amount: number;
     transaction_type: 'Debit' | 'Credit';
+    category_name?: string | null;
+    subcategory_name?: string | null;
     categories?: { name: string; color?: string } | null;
     accounts?: { name: string; account_type?: string } | null;
     transaction_mode?: string | null;
@@ -52,7 +54,8 @@ interface TransactionRowProps {
 }
 
 export default function TransactionRow({ transaction, onClick }: TransactionRowProps) {
-  const categoryName = transaction.categories?.name || 'Miscellaneous';
+  // Prefer direct category_name field, fallback to joined categories.name
+  const categoryName = transaction.category_name || transaction.categories?.name || 'Miscellaneous';
   const categoryEmoji = CATEGORY_ICONS[categoryName] || CATEGORY_ICONS[transaction.transaction_nature || ''] || '📦';
   const displayName = transaction.party || transaction.description || 'Transaction';
   const accountName = transaction.accounts?.name;
