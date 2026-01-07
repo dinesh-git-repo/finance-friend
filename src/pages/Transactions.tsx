@@ -29,7 +29,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Plus, Search, ArrowDownLeft, ArrowUpRight, Filter } from 'lucide-react';
+import { Plus, Search, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
+import CSVImportDialog from '@/components/transactions/CSVImportDialog';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import type { Database } from '@/integrations/supabase/types';
@@ -176,13 +177,20 @@ export default function Transactions() {
           <h1 className="text-2xl font-semibold text-foreground">Transactions</h1>
           <p className="text-muted-foreground">Manage and track all your transactions</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Transaction
-            </Button>
-          </DialogTrigger>
+        <div className="flex gap-2">
+          <CSVImportDialog 
+            userId={user?.id || ''} 
+            accounts={accounts} 
+            categories={categories} 
+            onImportComplete={fetchData} 
+          />
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Transaction
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Add New Transaction</DialogTitle>
@@ -351,8 +359,9 @@ export default function Transactions() {
                 </Button>
               </div>
             </form>
-          </DialogContent>
-        </Dialog>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <Card className="border-border/50">
