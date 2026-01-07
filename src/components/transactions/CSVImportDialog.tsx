@@ -140,13 +140,17 @@ export default function CSVImportDialog({
     const lines = content.trim().split('\n');
     if (lines.length < 2) return [];
 
-    // Parse and normalize headers
-    const rawHeaders = parseCSVLine(lines[0]);
+    // Auto-detect delimiter (tab or comma)
+    const firstLine = lines[0];
+    const delimiter = firstLine.includes('\t') ? '\t' : ',';
+
+    // Parse and normalize headers using detected delimiter
+    const rawHeaders = parseCSVLine(lines[0], delimiter);
     const headers = rawHeaders.map(h => normalizeHeader(h.trim()));
     const transactions: ParsedTransaction[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = parseCSVLine(lines[i]);
+      const values = parseCSVLine(lines[i], delimiter);
       const row: Record<string, string> = {};
       
       headers.forEach((header, index) => {
@@ -202,7 +206,7 @@ export default function CSVImportDialog({
     return transactions;
   };
 
-  const parseCSVLine = (line: string): string[] => {
+  const parseCSVLine = (line: string, delimiter: string = ','): string[] => {
     const result: string[] = [];
     let current = '';
     let inQuotes = false;
@@ -211,7 +215,7 @@ export default function CSVImportDialog({
       const char = line[i];
       if (char === '"') {
         inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
+      } else if (char === delimiter && !inQuotes) {
         result.push(current);
         current = '';
       } else {
