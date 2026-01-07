@@ -136,21 +136,55 @@ export default function CSVImportDialog({
     return HEADER_MAP[normalized] || normalized;
   };
 
+  // Split CSV content into rows, handling multi-line quoted fields
+  const splitCSVRows = (content: string): string[] => {
+    const rows: string[] = [];
+    let currentRow = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < content.length; i++) {
+      const char = content[i];
+      
+      if (char === '"') {
+        inQuotes = !inQuotes;
+        currentRow += char;
+      } else if ((char === '\n' || char === '\r') && !inQuotes) {
+        // End of row (outside quotes)
+        if (char === '\r' && content[i + 1] === '\n') {
+          i++; // Skip the \n in \r\n
+        }
+        if (currentRow.trim()) {
+          rows.push(currentRow);
+        }
+        currentRow = '';
+      } else {
+        currentRow += char;
+      }
+    }
+    
+    // Don't forget the last row
+    if (currentRow.trim()) {
+      rows.push(currentRow);
+    }
+    
+    return rows;
+  };
+
   const parseCSV = (content: string): ParsedTransaction[] => {
-    const lines = content.trim().split('\n');
-    if (lines.length < 2) return [];
+    const rows = splitCSVRows(content.trim());
+    if (rows.length < 2) return [];
 
     // Auto-detect delimiter (tab or comma)
-    const firstLine = lines[0];
-    const delimiter = firstLine.includes('\t') ? '\t' : ',';
+    const firstRow = rows[0];
+    const delimiter = firstRow.includes('\t') ? '\t' : ',';
 
     // Parse and normalize headers using detected delimiter
-    const rawHeaders = parseCSVLine(lines[0], delimiter);
+    const rawHeaders = parseCSVLine(rows[0], delimiter);
     const headers = rawHeaders.map(h => normalizeHeader(h.trim()));
     const transactions: ParsedTransaction[] = [];
 
-    for (let i = 1; i < lines.length; i++) {
-      const values = parseCSVLine(lines[i], delimiter);
+    for (let i = 1; i < rows.length; i++) {
+      const values = parseCSVLine(rows[i], delimiter);
       const row: Record<string, string> = {};
       
       headers.forEach((header, index) => {
@@ -161,7 +195,12 @@ export default function CSVImportDialog({
       
       // Validate required fields
       if (!row.transaction_date) errors.push('Date is required');
-      if (!row.amount || isNaN(parseFloat(row.amount))) errors.push('Valid amount is required');
+      
+      // Parse amount (handle comma-formatted numbers like "10,456.00")
+      const amountStr = row.amount?.replace(/,/g, '') || '';
+      const parsedAmount = parseFloat(amountStr);
+      if (!amountStr || isNaN(parsedAmount)) errors.push('Valid amount is required');
+      
       if (!row.transaction_type || !VALID_TRANSACTION_TYPES.includes(row.transaction_type as TransactionType)) {
         errors.push('Type must be Debit or Credit');
       }
@@ -184,7 +223,7 @@ export default function CSVImportDialog({
         rowIndex: i + 1, // CSV row number (1-indexed, header is row 1)
         transaction_date: row.transaction_date,
         day: row.day || undefined,
-        amount: parseFloat(row.amount) || 0,
+        amount: parsedAmount || 0,
         currency: row.currency || undefined,
         transaction_type: (row.transaction_type as TransactionType) || 'Debit',
         description: row.description || undefined,
