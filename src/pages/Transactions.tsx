@@ -131,8 +131,8 @@ export default function Transactions() {
           .from('transactions')
           .select(`
             *,
-            accounts (account_name, account_type),
-            categories (category_name, category_icon)
+            accounts (name, account_type),
+            categories (name, icon)
           `)
           .eq('user_id', user.id)
           .order('transaction_date', { ascending: false }),
@@ -144,7 +144,7 @@ export default function Transactions() {
         supabase
           .from('categories')
           .select('*')
-          .eq('user_id', user.id),
+          .or(`user_id.eq.${user.id},is_system.eq.true`),
         supabase
           .from('subcategories')
           .select('*'),
