@@ -11,6 +11,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -22,6 +33,7 @@ import {
 import { toast } from 'sonner';
 import { Plus, Wallet, Building2, CreditCard, PiggyBank, Smartphone, TrendingUp, Landmark, Trash2, Banknote, CircleDollarSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import AccountCSVImportDialog from '@/components/accounts/AccountCSVImportDialog';
 
 // Use string literals since enums are being updated
 type AccountType = 'Bank Account' | 'Credit Card' | 'Cash' | 'Demat' | 'Loan' | 'Overdraft' | 'Wallet' | 'BNPL';
@@ -86,6 +98,29 @@ export default function Accounts() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState<AccountFormData>(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
+  const handleDeleteAllAccounts = async () => {
+    if (!user) return;
+    setIsDeletingAll(true);
+    
+    try {
+      const { error } = await supabase
+        .from('accounts')
+        .delete()
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      toast.success('All accounts deleted successfully');
+      fetchAccounts();
+    } catch (error: any) {
+      console.error('Error deleting accounts:', error);
+      toast.error(error.message || 'Failed to delete accounts');
+    } finally {
+      setIsDeletingAll(false);
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -188,11 +223,43 @@ export default function Accounts() {
           <h1 className="text-2xl font-semibold text-foreground">Accounts</h1>
           <p className="text-muted-foreground">Manage your financial accounts</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Account
+        <div className="flex items-center gap-2">
+          {accounts.length > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete All
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete all accounts?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete all {accounts.length} accounts. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction 
+                    onClick={handleDeleteAllAccounts}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {isDeletingAll ? 'Deleting...' : 'Delete All'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          <AccountCSVImportDialog 
+            userId={user?.id || ''} 
+            onImportComplete={fetchAccounts} 
+          />
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Account
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
@@ -372,6 +439,7 @@ export default function Accounts() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Summary Card */}
