@@ -23,6 +23,7 @@ import { Plus } from 'lucide-react';
 import CSVImportDialog from '@/components/transactions/CSVImportDialog';
 import TransactionFilters, { FilterState } from '@/components/transactions/TransactionFilters';
 import TransactionList from '@/components/transactions/TransactionList';
+import TransactionDetailSheet from '@/components/transactions/TransactionDetailSheet';
 import { format, isWithinInterval, parseISO } from 'date-fns';
 import type { Database } from '@/integrations/supabase/types';
 
@@ -68,6 +69,7 @@ export default function Transactions() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState<TransactionFormData>(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<any | null>(null);
   
   const [filters, setFilters] = useState<FilterState>({
     search: '',
@@ -461,9 +463,22 @@ export default function Transactions() {
             ))}
           </div>
         ) : (
-          <TransactionList transactions={filteredTransactions} />
+          <TransactionList 
+            transactions={filteredTransactions} 
+            onTransactionClick={(txn) => setSelectedTransaction(txn)}
+          />
         )}
       </div>
+
+      {/* Transaction Detail Sheet */}
+      <TransactionDetailSheet
+        transaction={selectedTransaction}
+        isOpen={!!selectedTransaction}
+        onClose={() => setSelectedTransaction(null)}
+        onUpdate={fetchData}
+        categories={categories}
+        accounts={accounts}
+      />
     </div>
   );
 }
