@@ -380,9 +380,25 @@ export default function CSVImportDialog({
     ));
   };
 
-  const createNewEntities = async (): Promise<boolean> => {
+  interface CreatedEntities {
+    accounts: { id: string; name: string }[];
+    categories: { id: string; name: string }[];
+    tags: { id: string; name: string }[];
+    groups: { id: string; name: string }[];
+  }
+
+  const createNewEntities = async (): Promise<CreatedEntities | null> => {
     const selected = newEntities.filter(e => e.selected);
-    if (selected.length === 0) return true;
+    
+    // Start with current entities
+    let updatedAccounts = [...accounts];
+    let updatedCategories = [...categories];
+    let updatedTags = [...tags];
+    let updatedGroups = [...groups];
+
+    if (selected.length === 0) {
+      return { accounts: updatedAccounts, categories: updatedCategories, tags: updatedTags, groups: updatedGroups };
+    }
 
     try {
       // Create accounts
@@ -400,7 +416,8 @@ export default function CSVImportDialog({
         
         if (error) throw error;
         if (createdAccounts) {
-          setAccounts(prev => [...prev, ...createdAccounts]);
+          updatedAccounts = [...updatedAccounts, ...createdAccounts];
+          setAccounts(updatedAccounts);
         }
       }
 
@@ -418,7 +435,8 @@ export default function CSVImportDialog({
         
         if (error) throw error;
         if (createdCategories) {
-          setCategories(prev => [...prev, ...createdCategories]);
+          updatedCategories = [...updatedCategories, ...createdCategories];
+          setCategories(updatedCategories);
         }
       }
 
@@ -435,7 +453,8 @@ export default function CSVImportDialog({
         
         if (error) throw error;
         if (createdTags) {
-          setTags(prev => [...prev, ...createdTags]);
+          updatedTags = [...updatedTags, ...createdTags];
+          setTags(updatedTags);
         }
       }
 
@@ -452,15 +471,16 @@ export default function CSVImportDialog({
         
         if (error) throw error;
         if (createdGroups) {
-          setGroups(prev => [...prev, ...createdGroups]);
+          updatedGroups = [...updatedGroups, ...createdGroups];
+          setGroups(updatedGroups);
         }
       }
 
-      return true;
+      return { accounts: updatedAccounts, categories: updatedCategories, tags: updatedTags, groups: updatedGroups };
     } catch (error: any) {
       console.error('Error creating entities:', error);
       toast.error(`Failed to create items: ${error.message}`);
-      return false;
+      return null;
     }
   };
 
@@ -474,27 +494,29 @@ export default function CSVImportDialog({
     setIsImporting(true);
 
     try {
-      // First, create any new entities that were selected
-      const entitiesCreated = await createNewEntities();
-      if (!entitiesCreated) {
+      // First, create any new entities and get the updated lists directly
+      const updatedEntities = await createNewEntities();
+      if (!updatedEntities) {
         setIsImporting(false);
         return;
       }
+
+      // Use the returned entity lists (not stale React state)
       const transactionsToInsert = validTransactions.map(t => {
-        // Lookup IDs by name (case-insensitive)
-        const account = accounts.find(a => 
+        // Lookup IDs by name (case-insensitive) using updated lists
+        const account = updatedEntities.accounts.find(a => 
           a.name.toLowerCase() === t.account_name?.toLowerCase()
         );
-        const category = categories.find(c => 
+        const category = updatedEntities.categories.find(c => 
           c.name.toLowerCase() === t.category_name?.toLowerCase()
         );
         const subcategory = subcategories.find(s => 
           s.name.toLowerCase() === t.subcategory_name?.toLowerCase()
         );
-        const tag = tags.find(tg => 
+        const tag = updatedEntities.tags.find(tg => 
           tg.name.toLowerCase() === t.tag_name?.toLowerCase()
         );
-        const group = groups.find(g => 
+        const group = updatedEntities.groups.find(g => 
           g.name.toLowerCase() === t.group_name?.toLowerCase()
         );
 
