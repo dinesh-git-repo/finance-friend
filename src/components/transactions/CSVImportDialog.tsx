@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -24,9 +24,15 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
-import { Upload, FileText, AlertCircle, CheckCircle2, Download } from 'lucide-react';
+import { Upload, FileText, AlertCircle, CheckCircle2, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
 
@@ -97,7 +103,7 @@ const HEADER_MAP: Record<string, string> = {
 };
 
 const VALID_TRANSACTION_TYPES: TransactionType[] = ['Debit', 'Credit'];
-const VALID_MODES: TransactionMode[] = ['UPI', 'NEFT', 'IMPS', 'RTGS', 'Cheque', 'BBPS', 'EMI', 'Cash', 'Card', 'Other'];
+const VALID_MODES: TransactionMode[] = ['UPI', 'NEFT', 'IMPS', 'RTGS', 'Cheque', 'BBPS', 'EMI', 'Cash', 'Card', 'ACH', 'Other'];
 const VALID_NATURES: TransactionNature[] = ['Money Transfer', 'Auto Sweep', 'System Charge', 'Charge', 'Reversal', 'Rewards', 'Purchase', 'Income', 'Other'];
 
 const SAMPLE_CSV = `txnID,txnDate,txnDay,bankRemarks,amount,currency,txnType,accountID,accountType,relatedTxn,txnDescription,partyName,txnMode,txnNature,txnCategory,txnSubCategory,txnTag,txnGroup
@@ -118,6 +124,7 @@ export default function CSVImportDialog({
   const [parsedData, setParsedData] = useState<ParsedTransaction[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [expandedError, setExpandedError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const normalizeHeader = (header: string): string => {
@@ -320,18 +327,25 @@ export default function CSVImportDialog({
   const validCount = parsedData.filter(t => t.isValid).length;
   const invalidCount = parsedData.length - validCount;
 
-  // Aggregate errors for summary
-  const errorSummary = parsedData
-    .filter(t => !t.isValid)
-    .reduce((acc, t) => {
-      t.errors.forEach(error => {
-        acc[error] = (acc[error] || 0) + 1;
-      });
-      return acc;
-    }, {} as Record<string, number>);
+  // Aggregate errors for summary with row numbers
+  const errorDetails = useMemo(() => {
+    const details: Record<string, { count: number; rows: number[] }> = {};
+    parsedData.forEach((t, index) => {
+      if (!t.isValid) {
+        t.errors.forEach(error => {
+          if (!details[error]) {
+            details[error] = { count: 0, rows: [] };
+          }
+          details[error].count += 1;
+          details[error].rows.push(index + 2); // +2 because: +1 for 0-index, +1 for header row
+        });
+      }
+    });
+    return details;
+  }, [parsedData]);
 
-  const sortedErrors = Object.entries(errorSummary)
-    .sort((a, b) => b[1] - a[1]);
+  const sortedErrors = Object.entries(errorDetails)
+    .sort((a, b) => b[1].count - a[1].count);
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -382,7 +396,7 @@ export default function CSVImportDialog({
                       <li><code className="text-xs bg-muted px-1 rounded">relatedTxn</code> - Related transaction ID</li>
                       <li><code className="text-xs bg-muted px-1 rounded">txnDescription</code> - Transaction description</li>
                       <li><code className="text-xs bg-muted px-1 rounded">partyName</code> - Payee or payer name</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">txnMode</code> - UPI, NEFT, IMPS, RTGS, Cheque, BBPS, EMI, Cash, Card, Other</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnMode</code> - UPI, NEFT, IMPS, RTGS, Cheque, BBPS, EMI, Cash, Card, ACH, Other</li>
                       <li><code className="text-xs bg-muted px-1 rounded">txnNature</code> - Money Transfer, Auto Sweep, System Charge, Charge, Reversal, Rewards, Purchase, Income, Other</li>
                       <li><code className="text-xs bg-muted px-1 rounded">txnCategory</code> - Category name (must match existing)</li>
                       <li><code className="text-xs bg-muted px-1 rounded">txnSubCategory</code> - Subcategory name (must match existing)</li>
@@ -446,16 +460,52 @@ export default function CSVImportDialog({
                     <h5 className="font-medium text-expense">Error Summary</h5>
                   </div>
                   <p className="text-sm text-muted-foreground mb-3">
-                    {invalidCount} rows have issues that need to be fixed in your CSV file before importing:
+                    {invalidCount} rows have issues. Click on an error to see affected row numbers:
                   </p>
-                  <div className="space-y-2">
-                    {sortedErrors.map(([error, count]) => (
-                      <div key={error} className="flex items-center justify-between text-sm bg-background/50 rounded px-3 py-2">
-                        <span className="text-foreground">{error}</span>
-                        <Badge variant="outline" className="text-expense border-expense/30">
-                          {count} rows
-                        </Badge>
-                      </div>
+                  <div className="space-y-1">
+                    {sortedErrors.map(([error, { count, rows }]) => (
+                      <Collapsible 
+                        key={error} 
+                        open={expandedError === error}
+                        onOpenChange={(open) => setExpandedError(open ? error : null)}
+                      >
+                        <CollapsibleTrigger className="w-full">
+                          <div className="flex items-center justify-between text-sm bg-background/50 hover:bg-background/80 rounded px-3 py-2 transition-colors cursor-pointer">
+                            <div className="flex items-center gap-2">
+                              {expandedError === error ? (
+                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                              )}
+                              <span className="text-foreground text-left">{error}</span>
+                            </div>
+                            <Badge variant="outline" className="text-expense border-expense/30 ml-2 shrink-0">
+                              {count} rows
+                            </Badge>
+                          </div>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="ml-6 mt-1 p-3 bg-background/30 rounded-md border border-border/50">
+                            <p className="text-xs text-muted-foreground mb-2">
+                              Row numbers in your CSV file (including header):
+                            </p>
+                            <ScrollArea className="max-h-24">
+                              <div className="flex flex-wrap gap-1">
+                                {rows.slice(0, 100).map((row) => (
+                                  <Badge key={row} variant="secondary" className="text-xs font-mono">
+                                    {row}
+                                  </Badge>
+                                ))}
+                                {rows.length > 100 && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    +{rows.length - 100} more
+                                  </Badge>
+                                )}
+                              </div>
+                            </ScrollArea>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
                     ))}
                   </div>
                   <p className="text-xs text-muted-foreground mt-3">
