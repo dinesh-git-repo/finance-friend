@@ -84,6 +84,15 @@ const HEADER_MAP: Record<string, string> = {
   'dueday': 'repayment_day',
 };
 
+// Helper to parse currency values like "₹184,938.55" or "-₹4,242.65"
+const parseCurrencyValue = (value: string): number => {
+  if (!value || value.trim() === '') return 0;
+  // Remove currency symbols, commas, and whitespace
+  const cleaned = value.replace(/[₹$€£,\s]/g, '').trim();
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? 0 : num;
+};
+
 const VALID_ACCOUNT_TYPES: AccountType[] = ['Bank Account', 'Credit Card', 'Cash', 'Demat', 'Loan', 'Overdraft', 'Wallet', 'BNPL'];
 const VALID_CARD_NETWORKS: CardNetwork[] = ['Visa', 'Mastercard', 'Rupay', 'Amex', 'Diners', 'Discover', 'JCB', 'Other'];
 
@@ -173,14 +182,14 @@ export default function AccountCSVImportDialog({ userId, onImportComplete }: Acc
         rowIndex: i,
         name: row.name || '',
         account_type: accountType,
-        opening_balance: parseFloat(row.opening_balance) || 0,
+        opening_balance: parseCurrencyValue(row.opening_balance),
         currency: row.currency || 'INR',
         issuer_name: row.issuer_name || undefined,
         account_number: row.account_number || undefined,
         account_variant: row.account_variant || undefined,
         card_network: cardNetwork,
         network_variant: row.network_variant || undefined,
-        credit_limit: row.credit_limit ? parseFloat(row.credit_limit) : undefined,
+        credit_limit: row.credit_limit ? parseCurrencyValue(row.credit_limit) : undefined,
         statement_day: row.statement_day ? parseInt(row.statement_day) : undefined,
         repayment_day: row.repayment_day ? parseInt(row.repayment_day) : undefined,
         isValid: errors.length === 0,
@@ -335,7 +344,7 @@ export default function AccountCSVImportDialog({ userId, onImportComplete }: Acc
                       <TableHead className="w-[50px]">Row</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Type</TableHead>
-                      <TableHead className="text-right">Balance</TableHead>
+                      <TableHead className="text-right">Opening Balance</TableHead>
                       <TableHead>Issuer</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
