@@ -33,29 +33,26 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Upload, FileText, AlertCircle, CheckCircle2, Download, ChevronDown, ChevronRight, ChevronLeft, Plus, Wallet, Tag, FolderOpen } from 'lucide-react';
+import { Upload, FileText, AlertCircle, CheckCircle2, Download, ChevronDown, ChevronRight, ChevronLeft, Plus, Wallet } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import type { Database } from '@/integrations/supabase/types';
 
-type TransactionType = Database['public']['Enums']['transaction_type'];
-type TransactionMode = Database['public']['Enums']['transaction_mode'];
-type TransactionNature = Database['public']['Enums']['transaction_nature'];
-type AccountType = Database['public']['Enums']['account_type'];
+// Use string literals since enums are being updated
+type TransactionType = 'Debit' | 'Credit';
+type TransactionMode = 'UPI' | 'NEFT' | 'IMPS' | 'RTGS' | 'Cheque' | 'BBPS' | 'EMI' | 'Cash' | 'Card' | 'ACH' | 'Other';
+type TransactionNature = 'Charge' | 'Money Transfer' | 'Auto Sweep' | 'Reversal' | 'Rewards' | 'System Charge';
+type AccountType = 'Bank Account' | 'Credit Card' | 'Cash' | 'Demat' | 'Loan' | 'Overdraft' | 'Wallet' | 'BNPL';
 
 interface CSVImportDialogProps {
   userId: string;
-  accounts: { id: string; name: string }[];
-  categories: { id: string; name: string }[];
-  subcategories: { id: string; name: string; category_id: string }[];
-  tags: { id: string; name: string }[];
-  groups: { id: string; name: string }[];
+  accounts: { id: string; account_name: string }[];
+  categories: { id: string; category_name: string }[];
+  subcategories: { id: string; subcategory_name: string; category_id: string }[];
   onImportComplete: () => void;
 }
 
 interface ParsedTransaction {
-  rowIndex: number; // CSV row number (1-indexed, after header)
+  rowIndex: number;
   transaction_date: string;
-  day?: string;
   amount: number;
   currency?: string;
   transaction_type: TransactionType;
@@ -65,32 +62,31 @@ interface ParsedTransaction {
   account_name?: string;
   category_name?: string;
   subcategory_name?: string;
-  tag_name?: string;
+  tag?: string;
   group_name?: string;
   transaction_mode?: TransactionMode;
   transaction_nature?: TransactionNature;
-  related_txn?: string;
   isValid: boolean;
   errors: string[];
 }
 
 interface NewEntity {
   name: string;
-  type: 'account' | 'category' | 'tag' | 'group';
+  type: 'account' | 'category';
   selected: boolean;
 }
 
 // Header mapping from user's CSV format to our internal format
 const HEADER_MAP: Record<string, string> = {
-  'txnid': 'txn_id', // ignored during import
+  'txnid': 'txn_id',
   'txndate': 'transaction_date',
   'txnday': 'day',
   'bankremarks': 'bank_remarks',
   'amount': 'amount',
   'currency': 'currency',
   'txntype': 'transaction_type',
-  'accountid': 'account_name', // will lookup by name
-  'accounttype': 'account_type', // ignored
+  'accountid': 'account_name',
+  'accounttype': 'account_type',
   'relatedtxn': 'related_txn',
   'txndescription': 'description',
   'partyname': 'party',
@@ -98,9 +94,8 @@ const HEADER_MAP: Record<string, string> = {
   'txnnature': 'transaction_nature',
   'txncategory': 'category_name',
   'txnsubcategory': 'subcategory_name',
-  'txntag': 'tag_name',
+  'txntag': 'tag',
   'txngroup': 'group_name',
-  // Also support snake_case headers for backward compatibility
   'transaction_date': 'transaction_date',
   'transaction_type': 'transaction_type',
   'transaction_mode': 'transaction_mode',
@@ -109,33 +104,31 @@ const HEADER_MAP: Record<string, string> = {
   'category_name': 'category_name',
   'description': 'description',
   'party': 'party',
+  'tag': 'tag',
+  'group_name': 'group_name',
 };
 
 const DEFAULT_ACCOUNT_TYPE: AccountType = 'Bank Account';
 
 const VALID_TRANSACTION_TYPES: TransactionType[] = ['Debit', 'Credit'];
 const VALID_MODES: TransactionMode[] = ['UPI', 'NEFT', 'IMPS', 'RTGS', 'Cheque', 'BBPS', 'EMI', 'Cash', 'Card', 'ACH', 'Other'];
-const VALID_NATURES: TransactionNature[] = ['Money Transfer', 'Auto Sweep', 'System Charge', 'Charge', 'Reversal', 'Rewards', 'Purchase', 'Income', 'Other'];
+const VALID_NATURES: TransactionNature[] = ['Charge', 'Money Transfer', 'Auto Sweep', 'Reversal', 'Rewards', 'System Charge'];
 
-const SAMPLE_CSV = `txnID,txnDate,txnDay,bankRemarks,amount,currency,txnType,accountID,accountType,relatedTxn,txnDescription,partyName,txnMode,txnNature,txnCategory,txnSubCategory,txnTag,txnGroup
-,2024-01-15,Monday,UPI/123456789,1500.00,INR,Debit,HDFC Savings,Bank Account,,Grocery shopping,BigMart,UPI,Purchase,Food & Dining,,,
-,2024-01-16,Tuesday,NEFT/SALARY/JAN,50000.00,INR,Credit,HDFC Savings,Bank Account,,Monthly salary,Acme Corp,NEFT,Income,Income,,,
-,2024-01-17,Wednesday,AUTOPAY/NETFLIX,299.00,INR,Debit,ICICI Credit Card,Credit Card,,Netflix subscription,Netflix,Card,Purchase,Entertainment,,,`;
+const SAMPLE_CSV = `txnID,txnDate,bankRemarks,amount,currency,txnType,accountID,txnDescription,partyName,txnMode,txnNature,txnCategory,txnTag,txnGroup
+,2024-01-15,UPI/123456789,1500.00,INR,Debit,HDFC Savings,Grocery shopping,BigMart,UPI,Charge,Food & Dining,groceries,
+,2024-01-16,NEFT/SALARY/JAN,50000.00,INR,Credit,HDFC Savings,Monthly salary,Acme Corp,NEFT,Money Transfer,Income,,
+,2024-01-17,AUTOPAY/NETFLIX,299.00,INR,Debit,ICICI Credit Card,Netflix subscription,Netflix,Card,Charge,Entertainment,subscriptions,`;
 
 export default function CSVImportDialog({ 
   userId, 
   accounts: initialAccounts, 
   categories: initialCategories, 
   subcategories,
-  tags: initialTags,
-  groups: initialGroups,
   onImportComplete 
 }: CSVImportDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [accounts, setAccounts] = useState(initialAccounts);
   const [categories, setCategories] = useState(initialCategories);
-  const [tags, setTags] = useState(initialTags);
-  const [groups, setGroups] = useState(initialGroups);
   const [newEntities, setNewEntities] = useState<NewEntity[]>([]);
   const [parsedData, setParsedData] = useState<ParsedTransaction[]>([]);
   const [isImporting, setIsImporting] = useState(false);
@@ -151,7 +144,6 @@ export default function CSVImportDialog({
     return HEADER_MAP[normalized] || normalized;
   };
 
-  // Split CSV content into rows, handling multi-line quoted fields
   const splitCSVRows = (content: string): string[] => {
     const rows: string[] = [];
     let currentRow = '';
@@ -164,9 +156,8 @@ export default function CSVImportDialog({
         inQuotes = !inQuotes;
         currentRow += char;
       } else if ((char === '\n' || char === '\r') && !inQuotes) {
-        // End of row (outside quotes)
         if (char === '\r' && content[i + 1] === '\n') {
-          i++; // Skip the \n in \r\n
+          i++;
         }
         if (currentRow.trim()) {
           rows.push(currentRow);
@@ -177,7 +168,6 @@ export default function CSVImportDialog({
       }
     }
     
-    // Don't forget the last row
     if (currentRow.trim()) {
       rows.push(currentRow);
     }
@@ -189,11 +179,9 @@ export default function CSVImportDialog({
     const rows = splitCSVRows(content.trim());
     if (rows.length < 2) return [];
 
-    // Auto-detect delimiter (tab or comma)
     const firstRow = rows[0];
     const delimiter = firstRow.includes('\t') ? '\t' : ',';
 
-    // Parse and normalize headers using detected delimiter
     const rawHeaders = parseCSVLine(rows[0], delimiter);
     const headers = rawHeaders.map(h => normalizeHeader(h.trim()));
     const transactions: ParsedTransaction[] = [];
@@ -208,10 +196,8 @@ export default function CSVImportDialog({
 
       const errors: string[] = [];
       
-      // Validate required fields
       if (!row.transaction_date) errors.push('Date is required');
       
-      // Parse amount (handle comma-formatted numbers like "10,456.00")
       const amountStr = row.amount?.replace(/,/g, '') || '';
       const parsedAmount = parseFloat(amountStr);
       if (!amountStr || isNaN(parsedAmount)) errors.push('Valid amount is required');
@@ -220,7 +206,6 @@ export default function CSVImportDialog({
         errors.push('Type must be Debit or Credit');
       }
 
-      // Validate optional enums
       if (row.transaction_mode && !VALID_MODES.includes(row.transaction_mode as TransactionMode)) {
         errors.push(`Invalid mode: ${row.transaction_mode}`);
       }
@@ -228,16 +213,14 @@ export default function CSVImportDialog({
         errors.push(`Invalid nature: ${row.transaction_nature}`);
       }
 
-      // Validate date format (support multiple formats)
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (row.transaction_date && !dateRegex.test(row.transaction_date)) {
         errors.push('Date must be YYYY-MM-DD format');
       }
 
       transactions.push({
-        rowIndex: i + 1, // CSV row number (1-indexed, header is row 1)
+        rowIndex: i + 1,
         transaction_date: row.transaction_date,
-        day: row.day || undefined,
         amount: parsedAmount || 0,
         currency: row.currency || undefined,
         transaction_type: (row.transaction_type as TransactionType) || 'Debit',
@@ -247,11 +230,10 @@ export default function CSVImportDialog({
         account_name: row.account_name || undefined,
         category_name: row.category_name || undefined,
         subcategory_name: row.subcategory_name || undefined,
-        tag_name: row.tag_name || undefined,
+        tag: row.tag || undefined,
         group_name: row.group_name || undefined,
         transaction_mode: row.transaction_mode as TransactionMode || undefined,
         transaction_nature: row.transaction_nature as TransactionNature || undefined,
-        related_txn: row.related_txn || undefined,
         isValid: errors.length === 0,
         errors,
       });
@@ -297,7 +279,6 @@ export default function CSVImportDialog({
       const parsed = parseCSV(content);
       setParsedData(parsed);
 
-      // Detect new entities that don't exist
       const detected = detectNewEntities(parsed);
       setNewEntities(detected);
 
@@ -326,7 +307,7 @@ export default function CSVImportDialog({
       if (t.account_name) {
         const key = `account:${t.account_name.toLowerCase()}`;
         if (!seen.has(key)) {
-          const exists = accounts.some(a => a.name.toLowerCase() === t.account_name!.toLowerCase());
+          const exists = accounts.some(a => a.account_name.toLowerCase() === t.account_name!.toLowerCase());
           if (!exists) {
             entities.push({ name: t.account_name, type: 'account', selected: true });
             seen.add(key);
@@ -338,33 +319,9 @@ export default function CSVImportDialog({
       if (t.category_name) {
         const key = `category:${t.category_name.toLowerCase()}`;
         if (!seen.has(key)) {
-          const exists = categories.some(c => c.name.toLowerCase() === t.category_name!.toLowerCase());
+          const exists = categories.some(c => c.category_name.toLowerCase() === t.category_name!.toLowerCase());
           if (!exists) {
             entities.push({ name: t.category_name, type: 'category', selected: true });
-            seen.add(key);
-          }
-        }
-      }
-
-      // Check for new tags
-      if (t.tag_name) {
-        const key = `tag:${t.tag_name.toLowerCase()}`;
-        if (!seen.has(key)) {
-          const exists = tags.some(tg => tg.name.toLowerCase() === t.tag_name!.toLowerCase());
-          if (!exists) {
-            entities.push({ name: t.tag_name, type: 'tag', selected: true });
-            seen.add(key);
-          }
-        }
-      }
-
-      // Check for new groups
-      if (t.group_name) {
-        const key = `group:${t.group_name.toLowerCase()}`;
-        if (!seen.has(key)) {
-          const exists = groups.some(g => g.name.toLowerCase() === t.group_name!.toLowerCase());
-          if (!exists) {
-            entities.push({ name: t.group_name, type: 'group', selected: true });
             seen.add(key);
           }
         }
@@ -381,23 +338,18 @@ export default function CSVImportDialog({
   };
 
   interface CreatedEntities {
-    accounts: { id: string; name: string }[];
-    categories: { id: string; name: string }[];
-    tags: { id: string; name: string }[];
-    groups: { id: string; name: string }[];
+    accounts: { id: string; account_name: string }[];
+    categories: { id: string; category_name: string }[];
   }
 
   const createNewEntities = async (): Promise<CreatedEntities | null> => {
     const selected = newEntities.filter(e => e.selected);
     
-    // Start with current entities
     let updatedAccounts = [...accounts];
     let updatedCategories = [...categories];
-    let updatedTags = [...tags];
-    let updatedGroups = [...groups];
 
     if (selected.length === 0) {
-      return { accounts: updatedAccounts, categories: updatedCategories, tags: updatedTags, groups: updatedGroups };
+      return { accounts: updatedAccounts, categories: updatedCategories };
     }
 
     try {
@@ -408,11 +360,12 @@ export default function CSVImportDialog({
           .from('accounts')
           .insert(newAccountsToCreate.map(a => ({
             user_id: userId,
-            name: a.name,
+            account_name: a.name,
             account_type: DEFAULT_ACCOUNT_TYPE,
-            balance: 0,
+            opening_balance: 0,
+            closing_balance: 0,
           })))
-          .select('id, name');
+          .select('id, account_name');
         
         if (error) throw error;
         if (createdAccounts) {
@@ -428,10 +381,9 @@ export default function CSVImportDialog({
           .from('categories')
           .insert(newCategoriesToCreate.map(c => ({
             user_id: userId,
-            name: c.name,
-            is_system: false,
+            category_name: c.name,
           })))
-          .select('id, name');
+          .select('id, category_name');
         
         if (error) throw error;
         if (createdCategories) {
@@ -440,43 +392,7 @@ export default function CSVImportDialog({
         }
       }
 
-      // Create tags
-      const newTagsToCreate = selected.filter(e => e.type === 'tag');
-      if (newTagsToCreate.length > 0) {
-        const { data: createdTags, error } = await supabase
-          .from('tags')
-          .insert(newTagsToCreate.map(t => ({
-            user_id: userId,
-            name: t.name,
-          })))
-          .select('id, name');
-        
-        if (error) throw error;
-        if (createdTags) {
-          updatedTags = [...updatedTags, ...createdTags];
-          setTags(updatedTags);
-        }
-      }
-
-      // Create groups
-      const newGroupsToCreate = selected.filter(e => e.type === 'group');
-      if (newGroupsToCreate.length > 0) {
-        const { data: createdGroups, error } = await supabase
-          .from('transaction_groups')
-          .insert(newGroupsToCreate.map(g => ({
-            user_id: userId,
-            name: g.name,
-          })))
-          .select('id, name');
-        
-        if (error) throw error;
-        if (createdGroups) {
-          updatedGroups = [...updatedGroups, ...createdGroups];
-          setGroups(updatedGroups);
-        }
-      }
-
-      return { accounts: updatedAccounts, categories: updatedCategories, tags: updatedTags, groups: updatedGroups };
+      return { accounts: updatedAccounts, categories: updatedCategories };
     } catch (error: any) {
       console.error('Error creating entities:', error);
       toast.error(`Failed to create items: ${error.message}`);
@@ -494,36 +410,26 @@ export default function CSVImportDialog({
     setIsImporting(true);
 
     try {
-      // First, create any new entities and get the updated lists directly
       const updatedEntities = await createNewEntities();
       if (!updatedEntities) {
         setIsImporting(false);
         return;
       }
 
-      // Use the returned entity lists (not stale React state)
       const transactionsToInsert = validTransactions.map(t => {
-        // Lookup IDs by name (case-insensitive) using updated lists
         const account = updatedEntities.accounts.find(a => 
-          a.name.toLowerCase() === t.account_name?.toLowerCase()
+          a.account_name.toLowerCase() === t.account_name?.toLowerCase()
         );
         const category = updatedEntities.categories.find(c => 
-          c.name.toLowerCase() === t.category_name?.toLowerCase()
+          c.category_name.toLowerCase() === t.category_name?.toLowerCase()
         );
         const subcategory = subcategories.find(s => 
-          s.name.toLowerCase() === t.subcategory_name?.toLowerCase()
-        );
-        const tag = updatedEntities.tags.find(tg => 
-          tg.name.toLowerCase() === t.tag_name?.toLowerCase()
-        );
-        const group = updatedEntities.groups.find(g => 
-          g.name.toLowerCase() === t.group_name?.toLowerCase()
+          s.subcategory_name.toLowerCase() === t.subcategory_name?.toLowerCase()
         );
 
         return {
           user_id: userId,
           transaction_date: t.transaction_date,
-          day: t.day || null,
           amount: t.amount,
           currency: t.currency || 'INR',
           transaction_type: t.transaction_type,
@@ -533,8 +439,8 @@ export default function CSVImportDialog({
           account_id: account?.id || null,
           category_id: category?.id || null,
           subcategory_id: subcategory?.id || null,
-          tag_id: tag?.id || null,
-          group_id: group?.id || null,
+          tag: t.tag || null,
+          group_name: t.group_name || null,
           transaction_mode: t.transaction_mode || null,
           transaction_nature: t.transaction_nature || null,
         };
@@ -574,7 +480,6 @@ export default function CSVImportDialog({
   const validCount = parsedData.filter(t => t.isValid).length;
   const invalidCount = parsedData.length - validCount;
 
-  // Aggregate errors with full transaction data
   const errorDetails = useMemo(() => {
     const details: Record<string, { count: number; transactions: ParsedTransaction[] }> = {};
     parsedData.forEach((t) => {
@@ -600,7 +505,6 @@ export default function CSVImportDialog({
     setErrorPages(prev => ({ ...prev, [error]: page }));
   };
 
-  // Helper to determine if a field has an error
   const getFieldError = (error: string): string | null => {
     if (error.includes('Date')) return 'date';
     if (error.includes('amount')) return 'amount';
@@ -641,8 +545,8 @@ export default function CSVImportDialog({
                   <div>
                     <h4 className="font-medium mb-2">Required Columns:</h4>
                     <ul className="list-disc list-inside text-muted-foreground space-y-1">
-                      <li><code className="text-xs bg-muted px-1 rounded">txnDate</code> - Date in YYYY-MM-DD format (e.g., 2024-01-15)</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">amount</code> - Numeric value (e.g., 1500.00)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnDate</code> - Date in YYYY-MM-DD format</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">amount</code> - Numeric value</li>
                       <li><code className="text-xs bg-muted px-1 rounded">txnType</code> - Either "Debit" or "Credit"</li>
                     </ul>
                   </div>
@@ -650,21 +554,15 @@ export default function CSVImportDialog({
                   <div>
                     <h4 className="font-medium mb-2">Optional Columns:</h4>
                     <ul className="list-disc list-inside text-muted-foreground space-y-1">
-                      <li><code className="text-xs bg-muted px-1 rounded">txnID</code> - Transaction ID (ignored, auto-generated)</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">txnDay</code> - Day of week (e.g., Monday)</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">bankRemarks</code> - Bank statement remarks</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">currency</code> - Currency code (default: INR)</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">accountID</code> - Account name (must match existing)</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">accountType</code> - Account type (ignored)</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">relatedTxn</code> - Related transaction ID</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">accountID</code> - Account name</li>
                       <li><code className="text-xs bg-muted px-1 rounded">txnDescription</code> - Transaction description</li>
                       <li><code className="text-xs bg-muted px-1 rounded">partyName</code> - Payee or payer name</li>
                       <li><code className="text-xs bg-muted px-1 rounded">txnMode</code> - UPI, NEFT, IMPS, RTGS, Cheque, BBPS, EMI, Cash, Card, ACH, Other</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">txnNature</code> - Money Transfer, Auto Sweep, System Charge, Charge, Reversal, Rewards, Purchase, Income, Other</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">txnCategory</code> - Category name (must match existing)</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">txnSubCategory</code> - Subcategory name (must match existing)</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">txnTag</code> - Tag name (must match existing)</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">txnGroup</code> - Group name (must match existing)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnNature</code> - Charge, Money Transfer, Auto Sweep, Reversal, Rewards, System Charge</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnCategory</code> - Category name</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnTag</code> - Tag text (freeform)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnGroup</code> - Group name text (freeform)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">bankRemarks</code> - Bank statement remarks</li>
                     </ul>
                   </div>
 
@@ -699,266 +597,208 @@ export default function CSVImportDialog({
           {/* Preview */}
           {parsedData.length > 0 && (
             <div className="space-y-4">
+              {/* Summary */}
               <div className="flex items-center gap-4">
-                <h4 className="font-medium">Preview</h4>
-                <div className="flex gap-2">
-                  <Badge variant="secondary" className="bg-income/10 text-income">
-                    <CheckCircle2 className="mr-1 h-3 w-3" />
-                    {validCount} valid
-                  </Badge>
-                  {invalidCount > 0 && (
-                    <Badge variant="secondary" className="bg-expense/10 text-expense">
-                      <AlertCircle className="mr-1 h-3 w-3" />
-                      {invalidCount} errors
-                    </Badge>
-                  )}
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-income" />
+                  <span className="text-sm">{validCount} valid</span>
                 </div>
+                {invalidCount > 0 && (
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-destructive" />
+                    <span className="text-sm">{invalidCount} with errors</span>
+                  </div>
+                )}
               </div>
 
-              {/* Error Summary */}
-              {sortedErrors.length > 0 && (
-                <div className="bg-expense/5 border border-expense/20 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <AlertCircle className="h-5 w-5 text-expense" />
-                    <h5 className="font-medium text-expense">Error Summary</h5>
+              {/* New Entities to Create */}
+              {newEntities.length > 0 && (
+                <div className="border rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Plus className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">New items found in CSV</span>
                   </div>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    {invalidCount} rows have issues. Click on an error to see affected rows:
+                  <p className="text-xs text-muted-foreground">
+                    Select which items to create automatically:
                   </p>
-                  <div className="space-y-1">
-                    {sortedErrors.map(([error, { count, transactions: errorTxns }]) => {
-                      const currentPage = getErrorPage(error);
-                      const totalPages = Math.ceil(errorTxns.length / ROWS_PER_PAGE);
-                      const startIdx = currentPage * ROWS_PER_PAGE;
-                      const visibleTxns = errorTxns.slice(startIdx, startIdx + ROWS_PER_PAGE);
-                      const errorField = getFieldError(error);
-                      
-                      return (
-                        <Collapsible 
-                          key={error} 
-                          open={expandedError === error}
-                          onOpenChange={(open) => {
-                            setExpandedError(open ? error : null);
-                            if (open) setErrorPage(error, 0);
-                          }}
+                  <div className="space-y-2">
+                    {newEntities.map((entity, index) => (
+                      <div key={index} className="flex items-center gap-3">
+                        <Checkbox
+                          id={`entity-${index}`}
+                          checked={entity.selected}
+                          onCheckedChange={() => toggleEntity(index)}
+                        />
+                        <label
+                          htmlFor={`entity-${index}`}
+                          className="flex items-center gap-2 text-sm cursor-pointer"
                         >
-                          <CollapsibleTrigger className="w-full">
-                            <div className="flex items-center justify-between text-sm bg-background/50 hover:bg-background/80 rounded px-3 py-2 transition-colors cursor-pointer">
-                              <div className="flex items-center gap-2">
-                                {expandedError === error ? (
-                                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                                ) : (
-                                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                                )}
-                                <span className="text-foreground text-left">{error}</span>
-                              </div>
-                              <Badge variant="outline" className="text-expense border-expense/30 ml-2 shrink-0">
-                                {count} rows
-                              </Badge>
-                            </div>
-                          </CollapsibleTrigger>
-                          <CollapsibleContent>
-                            <div className="ml-6 mt-1 bg-background/30 rounded-md border border-border/50 overflow-hidden">
-                              {/* Mini table showing error rows */}
+                          {entity.type === 'account' && <Wallet className="h-4 w-4 text-muted-foreground" />}
+                          {entity.type === 'category' && <Badge variant="outline" className="text-xs">Category</Badge>}
+                          {entity.name}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Error Details */}
+              {sortedErrors.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium text-destructive">Errors Found:</h4>
+                  {sortedErrors.map(([error, details]) => {
+                    const isExpanded = expandedError === error;
+                    const currentPage = getErrorPage(error);
+                    const totalPages = Math.ceil(details.transactions.length / ROWS_PER_PAGE);
+                    const startIndex = currentPage * ROWS_PER_PAGE;
+                    const paginatedTransactions = details.transactions.slice(startIndex, startIndex + ROWS_PER_PAGE);
+                    const errorField = getFieldError(error);
+                    
+                    return (
+                      <Collapsible 
+                        key={error} 
+                        open={isExpanded}
+                        onOpenChange={(open) => setExpandedError(open ? error : null)}
+                      >
+                        <CollapsibleTrigger className="flex items-center gap-2 text-sm w-full p-2 rounded hover:bg-muted/50 transition-colors">
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          <span className="text-destructive">{error}</span>
+                          <Badge variant="secondary" className="ml-auto">{details.count} rows</Badge>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="ml-6 mt-2">
+                            <ScrollArea className="w-full">
                               <Table>
                                 <TableHeader>
-                                  <TableRow className="text-xs">
-                                    <TableHead className="py-2 px-3 w-14">Row</TableHead>
-                                    <TableHead className={`py-2 px-3 ${errorField === 'date' ? 'bg-expense/10' : ''}`}>Date</TableHead>
-                                    <TableHead className={`py-2 px-3 ${errorField === 'amount' ? 'bg-expense/10' : ''}`}>Amount</TableHead>
-                                    <TableHead className={`py-2 px-3 ${errorField === 'type' ? 'bg-expense/10' : ''}`}>Type</TableHead>
-                                    <TableHead className="py-2 px-3">Description</TableHead>
-                                    <TableHead className={`py-2 px-3 ${errorField === 'mode' ? 'bg-expense/10' : ''}`}>Mode</TableHead>
+                                  <TableRow>
+                                    <TableHead className="w-16">Row</TableHead>
+                                    <TableHead className={errorField === 'date' ? 'text-destructive' : ''}>Date</TableHead>
+                                    <TableHead className={errorField === 'amount' ? 'text-destructive' : ''}>Amount</TableHead>
+                                    <TableHead className={errorField === 'type' ? 'text-destructive' : ''}>Type</TableHead>
+                                    <TableHead>Description</TableHead>
+                                    <TableHead className={errorField === 'mode' ? 'text-destructive' : ''}>Mode</TableHead>
+                                    <TableHead className={errorField === 'nature' ? 'text-destructive' : ''}>Nature</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                  {visibleTxns.map((t) => (
-                                    <TableRow key={t.rowIndex} className="text-xs">
-                                      <TableCell className="py-1.5 px-3 font-mono text-muted-foreground">
-                                        {t.rowIndex + 1}
+                                  {paginatedTransactions.map((t) => (
+                                    <TableRow key={t.rowIndex}>
+                                      <TableCell className="font-mono text-xs">{t.rowIndex}</TableCell>
+                                      <TableCell className={errorField === 'date' ? 'text-destructive font-medium' : ''}>
+                                        {t.transaction_date || '-'}
                                       </TableCell>
-                                      <TableCell className={`py-1.5 px-3 font-mono ${errorField === 'date' ? 'bg-expense/10 text-expense font-medium' : ''}`}>
-                                        {t.transaction_date || <span className="text-expense italic">empty</span>}
+                                      <TableCell className={errorField === 'amount' ? 'text-destructive font-medium' : ''}>
+                                        {t.amount || '-'}
                                       </TableCell>
-                                      <TableCell className={`py-1.5 px-3 font-mono ${errorField === 'amount' ? 'bg-expense/10 text-expense font-medium' : ''}`}>
-                                        {t.amount || <span className="text-expense italic">empty</span>}
+                                      <TableCell className={errorField === 'type' ? 'text-destructive font-medium' : ''}>
+                                        {t.transaction_type || '-'}
                                       </TableCell>
-                                      <TableCell className={`py-1.5 px-3 ${errorField === 'type' ? 'bg-expense/10 text-expense font-medium' : ''}`}>
-                                        {t.transaction_type || <span className="text-expense italic">empty</span>}
-                                      </TableCell>
-                                      <TableCell className="py-1.5 px-3 max-w-[120px] truncate">
+                                      <TableCell className="max-w-[200px] truncate">
                                         {t.description || t.party || '-'}
                                       </TableCell>
-                                      <TableCell className={`py-1.5 px-3 ${errorField === 'mode' ? 'bg-expense/10 text-expense font-medium' : ''}`}>
+                                      <TableCell className={errorField === 'mode' ? 'text-destructive font-medium' : ''}>
                                         {t.transaction_mode || '-'}
+                                      </TableCell>
+                                      <TableCell className={errorField === 'nature' ? 'text-destructive font-medium' : ''}>
+                                        {t.transaction_nature || '-'}
                                       </TableCell>
                                     </TableRow>
                                   ))}
                                 </TableBody>
                               </Table>
-                              
-                              {/* Pagination */}
-                              {totalPages > 1 && (
-                                <div className="flex items-center justify-between px-3 py-2 border-t text-xs text-muted-foreground">
-                                  <span>
-                                    Showing {startIdx + 1}-{Math.min(startIdx + ROWS_PER_PAGE, errorTxns.length)} of {errorTxns.length}
+                              <ScrollBar orientation="horizontal" />
+                            </ScrollArea>
+                            
+                            {/* Pagination */}
+                            {totalPages > 1 && (
+                              <div className="flex items-center justify-between mt-2 pt-2 border-t">
+                                <span className="text-xs text-muted-foreground">
+                                  Showing {startIndex + 1}-{Math.min(startIndex + ROWS_PER_PAGE, details.transactions.length)} of {details.transactions.length}
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0"
+                                    disabled={currentPage === 0}
+                                    onClick={() => setErrorPage(error, currentPage - 1)}
+                                  >
+                                    <ChevronLeft className="h-4 w-4" />
+                                  </Button>
+                                  <span className="text-xs px-2">
+                                    {currentPage + 1} / {totalPages}
                                   </span>
-                                  <div className="flex items-center gap-1">
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setErrorPage(error, Math.max(0, currentPage - 1));
-                                      }}
-                                      disabled={currentPage === 0}
-                                    >
-                                      <ChevronLeft className="h-4 w-4" />
-                                    </Button>
-                                    <span className="px-2">
-                                      {currentPage + 1} / {totalPages}
-                                    </span>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setErrorPage(error, Math.min(totalPages - 1, currentPage + 1));
-                                      }}
-                                      disabled={currentPage >= totalPages - 1}
-                                    >
-                                      <ChevronRight className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </CollapsibleContent>
-                        </Collapsible>
-                      );
-                    })}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-3">
-                    💡 Tip: Fix these issues in your CSV file and re-upload. Valid rows ({validCount}) can still be imported.
-                  </p>
-                </div>
-              )}
-
-              {/* New Entities to Create */}
-              {newEntities.length > 0 && (
-                <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Plus className="h-5 w-5 text-primary" />
-                    <h5 className="font-medium text-primary">New Items to Create</h5>
-                  </div>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    These items from your CSV don't exist yet. Select which ones to create automatically:
-                  </p>
-                  <div className="grid gap-2">
-                    {newEntities.map((entity, index) => {
-                      const Icon = entity.type === 'account' ? Wallet : 
-                                   entity.type === 'category' ? FolderOpen : 
-                                   entity.type === 'tag' ? Tag : FolderOpen;
-                      const typeLabel = entity.type.charAt(0).toUpperCase() + entity.type.slice(1);
-                      
-                      return (
-                        <div 
-                          key={`${entity.type}-${entity.name}`}
-                          className="flex items-center gap-3 bg-background/50 hover:bg-background/80 rounded px-3 py-2 transition-colors cursor-pointer"
-                          onClick={() => toggleEntity(index)}
-                        >
-                          <Checkbox 
-                            checked={entity.selected} 
-                            onCheckedChange={() => toggleEntity(index)}
-                          />
-                          <Icon className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm font-medium">{entity.name}</span>
-                          <Badge variant="outline" className="ml-auto text-xs">
-                            {typeLabel}
-                          </Badge>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-3">
-                    ✨ Selected items will be created when you click Import.
-                  </p>
-                </div>
-              )}
-
-              <ScrollArea className="border rounded-lg">
-                <div className="max-h-[300px]">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-10 sticky left-0 bg-background z-10">Status</TableHead>
-                        <TableHead className="whitespace-nowrap">Date</TableHead>
-                        <TableHead className="whitespace-nowrap">Day</TableHead>
-                        <TableHead className="whitespace-nowrap">Amount</TableHead>
-                        <TableHead className="whitespace-nowrap">Currency</TableHead>
-                        <TableHead className="whitespace-nowrap">Type</TableHead>
-                        <TableHead className="whitespace-nowrap">Account</TableHead>
-                        <TableHead className="whitespace-nowrap">Description</TableHead>
-                        <TableHead className="whitespace-nowrap">Party</TableHead>
-                        <TableHead className="whitespace-nowrap">Bank Remarks</TableHead>
-                        <TableHead className="whitespace-nowrap">Mode</TableHead>
-                        <TableHead className="whitespace-nowrap">Nature</TableHead>
-                        <TableHead className="whitespace-nowrap">Category</TableHead>
-                        <TableHead className="whitespace-nowrap">Subcategory</TableHead>
-                        <TableHead className="whitespace-nowrap">Tag</TableHead>
-                        <TableHead className="whitespace-nowrap">Group</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {parsedData.slice(0, 20).map((t, i) => (
-                        <TableRow key={i} className={!t.isValid ? 'bg-expense/5' : ''}>
-                          <TableCell className="sticky left-0 bg-background z-10">
-                            {t.isValid ? (
-                              <CheckCircle2 className="h-4 w-4 text-income" />
-                            ) : (
-                              <div className="group relative">
-                                <AlertCircle className="h-4 w-4 text-expense" />
-                                <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block z-20 w-48 p-2 bg-popover border rounded-md shadow-md text-xs">
-                                  {t.errors.map((e, j) => (
-                                    <p key={j} className="text-expense">{e}</p>
-                                  ))}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0"
+                                    disabled={currentPage >= totalPages - 1}
+                                    onClick={() => setErrorPage(error, currentPage + 1)}
+                                  >
+                                    <ChevronRight className="h-4 w-4" />
+                                  </Button>
                                 </div>
                               </div>
                             )}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs whitespace-nowrap">{t.transaction_date || '-'}</TableCell>
-                          <TableCell className="text-xs whitespace-nowrap">{t.day || '-'}</TableCell>
-                          <TableCell className="font-mono whitespace-nowrap">{t.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
-                          <TableCell className="text-xs whitespace-nowrap">{t.currency || 'INR'}</TableCell>
-                          <TableCell>
-                            <Badge variant={t.transaction_type === 'Credit' ? 'default' : 'secondary'} className="whitespace-nowrap">
-                              {t.transaction_type}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{t.account_name || '-'}</TableCell>
-                          <TableCell className="text-sm max-w-[200px] truncate">{t.description || '-'}</TableCell>
-                          <TableCell className="text-sm whitespace-nowrap">{t.party || '-'}</TableCell>
-                          <TableCell className="text-xs max-w-[200px] truncate text-muted-foreground">{t.bank_remarks || '-'}</TableCell>
-                          <TableCell className="text-xs whitespace-nowrap">{t.transaction_mode || '-'}</TableCell>
-                          <TableCell className="text-xs whitespace-nowrap">{t.transaction_nature || '-'}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{t.category_name || '-'}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{t.subcategory_name || '-'}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{t.tag_name || '-'}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{t.group_name || '-'}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    );
+                  })}
                 </div>
-                <ScrollBar orientation="horizontal" />
-                {parsedData.length > 20 && (
-                  <div className="p-2 text-center text-sm text-muted-foreground border-t">
-                    And {parsedData.length - 20} more transactions...
-                  </div>
-                )}
-              </ScrollArea>
+              )}
+
+              {/* Valid Transactions Preview */}
+              {validCount > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium">Preview (first 5 valid):</h4>
+                  <ScrollArea className="w-full border rounded-lg">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Account</TableHead>
+                          <TableHead>Description</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead>Tag</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {parsedData
+                          .filter(t => t.isValid)
+                          .slice(0, 5)
+                          .map((t, i) => (
+                            <TableRow key={i}>
+                              <TableCell>{t.transaction_date}</TableCell>
+                              <TableCell className={t.transaction_type === 'Debit' ? '' : 'text-income'}>
+                                {t.transaction_type === 'Credit' ? '+' : '-'}₹{t.amount.toLocaleString('en-IN')}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={t.transaction_type === 'Credit' ? 'default' : 'secondary'}>
+                                  {t.transaction_type}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{t.account_name || '-'}</TableCell>
+                              <TableCell className="max-w-[200px] truncate">
+                                {t.description || t.party || '-'}
+                              </TableCell>
+                              <TableCell>{t.category_name || '-'}</TableCell>
+                              <TableCell>{t.tag || '-'}</TableCell>
+                            </TableRow>
+                          ))}
+                      </TableBody>
+                    </Table>
+                    <ScrollBar orientation="horizontal" />
+                  </ScrollArea>
+                </div>
+              )}
             </div>
           )}
 
@@ -967,8 +807,8 @@ export default function CSVImportDialog({
             <Button variant="outline" onClick={() => setIsOpen(false)}>
               Cancel
             </Button>
-            <Button 
-              onClick={handleImport} 
+            <Button
+              onClick={handleImport}
               disabled={validCount === 0 || isImporting}
             >
               {isImporting ? 'Importing...' : `Import ${validCount} Transactions`}

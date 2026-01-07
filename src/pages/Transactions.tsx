@@ -35,7 +35,7 @@ import CSVImportDialog from '@/components/transactions/CSVImportDialog';
 import TransactionFilters, { FilterState } from '@/components/transactions/TransactionFilters';
 import TransactionList from '@/components/transactions/TransactionList';
 import TransactionDetailSheet from '@/components/transactions/TransactionDetailSheet';
-import { format, isWithinInterval, parseISO } from 'date-fns';
+import { isWithinInterval, parseISO } from 'date-fns';
 import type { Database } from '@/integrations/supabase/types';
 
 type TransactionType = Database['public']['Enums']['transaction_type'];
@@ -53,6 +53,8 @@ interface TransactionFormData {
   category_id: string;
   transaction_mode: TransactionMode | '';
   transaction_nature: TransactionNature | '';
+  tag: string;
+  group_name: string;
 }
 
 const initialFormData: TransactionFormData = {
@@ -66,6 +68,8 @@ const initialFormData: TransactionFormData = {
   category_id: '',
   transaction_mode: '',
   transaction_nature: '',
+  tag: '',
+  group_name: '',
 };
 
 export default function Transactions() {
@@ -74,8 +78,6 @@ export default function Transactions() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [subcategories, setSubcategories] = useState<any[]>([]);
-  const [tags, setTags] = useState<any[]>([]);
-  const [groups, setGroups] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState<TransactionFormData>(initialFormData);
@@ -124,13 +126,13 @@ export default function Transactions() {
     setIsLoading(true);
 
     try {
-      const [transactionsRes, accountsRes, categoriesRes, subcategoriesRes, tagsRes, groupsRes] = await Promise.all([
+      const [transactionsRes, accountsRes, categoriesRes, subcategoriesRes] = await Promise.all([
         supabase
           .from('transactions')
           .select(`
             *,
-            accounts (name, account_type),
-            categories (name, color)
+            accounts (account_name, account_type),
+            categories (category_name, category_icon)
           `)
           .eq('user_id', user.id)
           .order('transaction_date', { ascending: false }),
@@ -142,26 +144,16 @@ export default function Transactions() {
         supabase
           .from('categories')
           .select('*')
-          .or(`user_id.eq.${user.id},is_system.eq.true`),
+          .eq('user_id', user.id),
         supabase
           .from('subcategories')
           .select('*'),
-        supabase
-          .from('tags')
-          .select('*')
-          .eq('user_id', user.id),
-        supabase
-          .from('transaction_groups')
-          .select('*')
-          .eq('user_id', user.id)
       ]);
 
       if (transactionsRes.data) setTransactions(transactionsRes.data);
       if (accountsRes.data) setAccounts(accountsRes.data);
       if (categoriesRes.data) setCategories(categoriesRes.data);
       if (subcategoriesRes.data) setSubcategories(subcategoriesRes.data);
-      if (tagsRes.data) setTags(tagsRes.data);
-      if (groupsRes.data) setGroups(groupsRes.data);
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load transactions');
@@ -174,22 +166,28 @@ export default function Transactions() {
     e.preventDefault();
     if (!user) return;
 
+    if (!formData.account_id) {
+      toast.error('Please select an account');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
       const transactionData: any = {
         user_id: user.id,
         transaction_date: formData.transaction_date,
-        day: format(new Date(formData.transaction_date), 'EEEE'),
         amount: parseFloat(formData.amount),
         transaction_type: formData.transaction_type,
         description: formData.description || null,
         party: formData.party || null,
         bank_remarks: formData.bank_remarks || null,
-        account_id: formData.account_id || null,
+        account_id: formData.account_id,
         category_id: formData.category_id || null,
         transaction_mode: formData.transaction_mode || null,
         transaction_nature: formData.transaction_nature || null,
+        tag: formData.tag || null,
+        group_name: formData.group_name || null,
       };
 
       const { error } = await supabase
@@ -219,7 +217,9 @@ export default function Transactions() {
           t.description?.toLowerCase().includes(query) ||
           t.party?.toLowerCase().includes(query) ||
           t.bank_remarks?.toLowerCase().includes(query) ||
-          t.categories?.name?.toLowerCase().includes(query);
+          t.tag?.toLowerCase().includes(query) ||
+          t.group_name?.toLowerCase().includes(query) ||
+          t.categories?.category_name?.toLowerCase().includes(query);
         if (!matches) return false;
       }
 
@@ -318,8 +318,6 @@ export default function Transactions() {
             accounts={accounts} 
             categories={categories}
             subcategories={subcategories}
-            tags={tags}
-            groups={groups}
             onImportComplete={fetchData} 
           />
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -336,7 +334,7 @@ export default function Transactions() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Date</Label>
+                    <Label>Date *</Label>
                     <Input
                       type="date"
                       value={formData.transaction_date}
@@ -345,7 +343,7 @@ export default function Transactions() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Amount</Label>
+                    <Label>Amount *</Label>
                     <Input
                       type="number"
                       step="0.01"
@@ -359,7 +357,7 @@ export default function Transactions() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Type</Label>
+                    <Label>Type *</Label>
                     <Select
                       value={formData.transaction_type}
                       onValueChange={(value: TransactionType) => setFormData({ ...formData, transaction_type: value })}
@@ -374,7 +372,7 @@ export default function Transactions() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Account</Label>
+                    <Label>Account *</Label>
                     <Select
                       value={formData.account_id}
                       onValueChange={(value) => setFormData({ ...formData, account_id: value })}
@@ -385,7 +383,7 @@ export default function Transactions() {
                       <SelectContent>
                         {accounts.map((acc) => (
                           <SelectItem key={acc.id} value={acc.id}>
-                            {acc.name}
+                            {acc.account_name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -423,7 +421,7 @@ export default function Transactions() {
                       <SelectContent>
                         {categories.map((cat) => (
                           <SelectItem key={cat.id} value={cat.id}>
-                            {cat.name}
+                            {cat.category_name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -465,17 +463,33 @@ export default function Transactions() {
                         <SelectValue placeholder="Select nature" />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="Charge">Charge</SelectItem>
                         <SelectItem value="Money Transfer">Money Transfer</SelectItem>
                         <SelectItem value="Auto Sweep">Auto Sweep</SelectItem>
-                        <SelectItem value="System Charge">System Charge</SelectItem>
-                        <SelectItem value="Charge">Charge</SelectItem>
                         <SelectItem value="Reversal">Reversal</SelectItem>
                         <SelectItem value="Rewards">Rewards</SelectItem>
-                        <SelectItem value="Purchase">Purchase</SelectItem>
-                        <SelectItem value="Income">Income</SelectItem>
-                        <SelectItem value="Other">Other</SelectItem>
+                        <SelectItem value="System Charge">System Charge</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Tag</Label>
+                    <Input
+                      placeholder="e.g., vacation, work"
+                      value={formData.tag}
+                      onChange={(e) => setFormData({ ...formData, tag: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Group</Label>
+                    <Input
+                      placeholder="e.g., Trip to Goa"
+                      value={formData.group_name}
+                      onChange={(e) => setFormData({ ...formData, group_name: e.target.value })}
+                    />
                   </div>
                 </div>
 
