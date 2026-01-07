@@ -113,7 +113,7 @@ export default function Dashboard() {
 
       if (accountsData) {
         setAccounts(accountsData);
-        const totalBalance = accountsData.reduce((sum, acc) => sum + Number(acc.balance), 0);
+        const totalBalance = accountsData.reduce((sum, acc) => sum + Number(acc.closing_balance || 0), 0);
         setStats(prev => ({ ...prev, totalBalance }));
       }
 
