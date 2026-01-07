@@ -19,7 +19,18 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import CSVImportDialog from '@/components/transactions/CSVImportDialog';
 import TransactionFilters, { FilterState } from '@/components/transactions/TransactionFilters';
 import TransactionList from '@/components/transactions/TransactionList';
@@ -78,6 +89,29 @@ export default function Transactions() {
     categoryId: '',
     accountId: '',
   });
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
+  const handleDeleteAllTransactions = async () => {
+    if (!user) return;
+    setIsDeletingAll(true);
+    
+    try {
+      const { error } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('user_id', user.id);
+      
+      if (error) throw error;
+      
+      toast.success(`Deleted ${transactions.length} transactions`);
+      fetchData();
+    } catch (error: any) {
+      console.error('Error deleting transactions:', error);
+      toast.error(error.message || 'Failed to delete transactions');
+    } finally {
+      setIsDeletingAll(false);
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -250,6 +284,35 @@ export default function Transactions() {
           </p>
         </div>
         <div className="flex gap-2">
+          {transactions.length > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Clear All
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete All Transactions?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete <strong>{transactions.length}</strong> transactions. 
+                    This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleDeleteAllTransactions}
+                    disabled={isDeletingAll}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {isDeletingAll ? 'Deleting...' : 'Delete All'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
           <CSVImportDialog 
             userId={user?.id || ''} 
             accounts={accounts} 
