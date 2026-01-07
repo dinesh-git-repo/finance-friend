@@ -70,6 +70,9 @@ export default function Transactions() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [subcategories, setSubcategories] = useState<any[]>([]);
+  const [tags, setTags] = useState<any[]>([]);
+  const [groups, setGroups] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -87,7 +90,7 @@ export default function Transactions() {
     setIsLoading(true);
 
     try {
-      const [transactionsRes, accountsRes, categoriesRes] = await Promise.all([
+      const [transactionsRes, accountsRes, categoriesRes, subcategoriesRes, tagsRes, groupsRes] = await Promise.all([
         supabase
           .from('transactions')
           .select(`
@@ -106,12 +109,26 @@ export default function Transactions() {
         supabase
           .from('categories')
           .select('*')
-          .or(`user_id.eq.${user.id},is_system.eq.true`)
+          .or(`user_id.eq.${user.id},is_system.eq.true`),
+        supabase
+          .from('subcategories')
+          .select('*'),
+        supabase
+          .from('tags')
+          .select('*')
+          .eq('user_id', user.id),
+        supabase
+          .from('transaction_groups')
+          .select('*')
+          .eq('user_id', user.id)
       ]);
 
       if (transactionsRes.data) setTransactions(transactionsRes.data);
       if (accountsRes.data) setAccounts(accountsRes.data);
       if (categoriesRes.data) setCategories(categoriesRes.data);
+      if (subcategoriesRes.data) setSubcategories(subcategoriesRes.data);
+      if (tagsRes.data) setTags(tagsRes.data);
+      if (groupsRes.data) setGroups(groupsRes.data);
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load transactions');
@@ -181,7 +198,10 @@ export default function Transactions() {
           <CSVImportDialog 
             userId={user?.id || ''} 
             accounts={accounts} 
-            categories={categories} 
+            categories={categories}
+            subcategories={subcategories}
+            tags={tags}
+            groups={groups}
             onImportComplete={fetchData} 
           />
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

@@ -28,7 +28,6 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Upload, FileText, AlertCircle, CheckCircle2, Download } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { format } from 'date-fns';
 import type { Database } from '@/integrations/supabase/types';
 
 type TransactionType = Database['public']['Enums']['transaction_type'];
@@ -39,45 +38,100 @@ interface CSVImportDialogProps {
   userId: string;
   accounts: { id: string; name: string }[];
   categories: { id: string; name: string }[];
+  subcategories: { id: string; name: string; category_id: string }[];
+  tags: { id: string; name: string }[];
+  groups: { id: string; name: string }[];
   onImportComplete: () => void;
 }
 
 interface ParsedTransaction {
   transaction_date: string;
+  day?: string;
   amount: number;
+  currency?: string;
   transaction_type: TransactionType;
   description?: string;
   party?: string;
   bank_remarks?: string;
   account_name?: string;
   category_name?: string;
+  subcategory_name?: string;
+  tag_name?: string;
+  group_name?: string;
   transaction_mode?: TransactionMode;
   transaction_nature?: TransactionNature;
+  related_txn?: string;
   isValid: boolean;
   errors: string[];
 }
+
+// Header mapping from user's CSV format to our internal format
+const HEADER_MAP: Record<string, string> = {
+  'txnid': 'txn_id', // ignored during import
+  'txndate': 'transaction_date',
+  'txnday': 'day',
+  'bankremarks': 'bank_remarks',
+  'amount': 'amount',
+  'currency': 'currency',
+  'txntype': 'transaction_type',
+  'accountid': 'account_name', // will lookup by name
+  'accounttype': 'account_type', // ignored
+  'relatedtxn': 'related_txn',
+  'txndescription': 'description',
+  'partyname': 'party',
+  'txnmode': 'transaction_mode',
+  'txnnature': 'transaction_nature',
+  'txncategory': 'category_name',
+  'txnsubcategory': 'subcategory_name',
+  'txntag': 'tag_name',
+  'txngroup': 'group_name',
+  // Also support snake_case headers for backward compatibility
+  'transaction_date': 'transaction_date',
+  'transaction_type': 'transaction_type',
+  'transaction_mode': 'transaction_mode',
+  'transaction_nature': 'transaction_nature',
+  'account_name': 'account_name',
+  'category_name': 'category_name',
+  'description': 'description',
+  'party': 'party',
+};
 
 const VALID_TRANSACTION_TYPES: TransactionType[] = ['Debit', 'Credit'];
 const VALID_MODES: TransactionMode[] = ['UPI', 'NEFT', 'IMPS', 'RTGS', 'Cheque', 'BBPS', 'EMI', 'Cash', 'Card', 'Other'];
 const VALID_NATURES: TransactionNature[] = ['Money Transfer', 'Auto Sweep', 'System Charge', 'Charge', 'Reversal', 'Rewards', 'Purchase', 'Income', 'Other'];
 
-const SAMPLE_CSV = `transaction_date,amount,transaction_type,description,party,bank_remarks,account_name,category_name,transaction_mode,transaction_nature
-2024-01-15,1500.00,Debit,Grocery shopping,BigMart,UPI/123456789,HDFC Savings,Food & Dining,UPI,Purchase
-2024-01-16,50000.00,Credit,Monthly salary,Acme Corp,NEFT/SALARY/JAN,HDFC Savings,Income,NEFT,Income
-2024-01-17,299.00,Debit,Netflix subscription,Netflix,AUTOPAY/NETFLIX,ICICI Credit Card,Entertainment,Card,Purchase`;
+const SAMPLE_CSV = `txnID,txnDate,txnDay,bankRemarks,amount,currency,txnType,accountID,accountType,relatedTxn,txnDescription,partyName,txnMode,txnNature,txnCategory,txnSubCategory,txnTag,txnGroup
+,2024-01-15,Monday,UPI/123456789,1500.00,INR,Debit,HDFC Savings,Bank Account,,Grocery shopping,BigMart,UPI,Purchase,Food & Dining,,,
+,2024-01-16,Tuesday,NEFT/SALARY/JAN,50000.00,INR,Credit,HDFC Savings,Bank Account,,Monthly salary,Acme Corp,NEFT,Income,Income,,,
+,2024-01-17,Wednesday,AUTOPAY/NETFLIX,299.00,INR,Debit,ICICI Credit Card,Credit Card,,Netflix subscription,Netflix,Card,Purchase,Entertainment,,,`;
 
-export default function CSVImportDialog({ userId, accounts, categories, onImportComplete }: CSVImportDialogProps) {
+export default function CSVImportDialog({ 
+  userId, 
+  accounts, 
+  categories, 
+  subcategories,
+  tags,
+  groups,
+  onImportComplete 
+}: CSVImportDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [parsedData, setParsedData] = useState<ParsedTransaction[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [fileName, setFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const normalizeHeader = (header: string): string => {
+    const normalized = header.toLowerCase().replace(/[\s_-]+/g, '');
+    return HEADER_MAP[normalized] || normalized;
+  };
+
   const parseCSV = (content: string): ParsedTransaction[] => {
     const lines = content.trim().split('\n');
     if (lines.length < 2) return [];
 
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+    // Parse and normalize headers
+    const rawHeaders = parseCSVLine(lines[0]);
+    const headers = rawHeaders.map(h => normalizeHeader(h.trim()));
     const transactions: ParsedTransaction[] = [];
 
     for (let i = 1; i < lines.length; i++) {
@@ -105,7 +159,7 @@ export default function CSVImportDialog({ userId, accounts, categories, onImport
         errors.push(`Invalid nature: ${row.transaction_nature}`);
       }
 
-      // Validate date format
+      // Validate date format (support multiple formats)
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (row.transaction_date && !dateRegex.test(row.transaction_date)) {
         errors.push('Date must be YYYY-MM-DD format');
@@ -113,15 +167,21 @@ export default function CSVImportDialog({ userId, accounts, categories, onImport
 
       transactions.push({
         transaction_date: row.transaction_date,
+        day: row.day || undefined,
         amount: parseFloat(row.amount) || 0,
+        currency: row.currency || undefined,
         transaction_type: (row.transaction_type as TransactionType) || 'Debit',
         description: row.description || undefined,
         party: row.party || undefined,
         bank_remarks: row.bank_remarks || undefined,
         account_name: row.account_name || undefined,
         category_name: row.category_name || undefined,
+        subcategory_name: row.subcategory_name || undefined,
+        tag_name: row.tag_name || undefined,
+        group_name: row.group_name || undefined,
         transaction_mode: row.transaction_mode as TransactionMode || undefined,
         transaction_nature: row.transaction_nature as TransactionNature || undefined,
+        related_txn: row.related_txn || undefined,
         isValid: errors.length === 0,
         errors,
       });
@@ -190,25 +250,38 @@ export default function CSVImportDialog({ userId, accounts, categories, onImport
 
     try {
       const transactionsToInsert = validTransactions.map(t => {
-        // Match account and category by name
+        // Lookup IDs by name (case-insensitive)
         const account = accounts.find(a => 
           a.name.toLowerCase() === t.account_name?.toLowerCase()
         );
         const category = categories.find(c => 
           c.name.toLowerCase() === t.category_name?.toLowerCase()
         );
+        const subcategory = subcategories.find(s => 
+          s.name.toLowerCase() === t.subcategory_name?.toLowerCase()
+        );
+        const tag = tags.find(tg => 
+          tg.name.toLowerCase() === t.tag_name?.toLowerCase()
+        );
+        const group = groups.find(g => 
+          g.name.toLowerCase() === t.group_name?.toLowerCase()
+        );
 
         return {
           user_id: userId,
           transaction_date: t.transaction_date,
-          day: format(new Date(t.transaction_date), 'EEEE'),
+          day: t.day || null,
           amount: t.amount,
+          currency: t.currency || 'INR',
           transaction_type: t.transaction_type,
           description: t.description || null,
           party: t.party || null,
           bank_remarks: t.bank_remarks || null,
           account_id: account?.id || null,
           category_id: category?.id || null,
+          subcategory_id: subcategory?.id || null,
+          tag_id: tag?.id || null,
+          group_id: group?.id || null,
           transaction_mode: t.transaction_mode || null,
           transaction_nature: t.transaction_nature || null,
         };
@@ -278,22 +351,30 @@ export default function CSVImportDialog({ userId, accounts, categories, onImport
                   <div>
                     <h4 className="font-medium mb-2">Required Columns:</h4>
                     <ul className="list-disc list-inside text-muted-foreground space-y-1">
-                      <li><code className="text-xs bg-muted px-1 rounded">transaction_date</code> - Date in YYYY-MM-DD format (e.g., 2024-01-15)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnDate</code> - Date in YYYY-MM-DD format (e.g., 2024-01-15)</li>
                       <li><code className="text-xs bg-muted px-1 rounded">amount</code> - Numeric value (e.g., 1500.00)</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">transaction_type</code> - Either "Debit" or "Credit"</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnType</code> - Either "Debit" or "Credit"</li>
                     </ul>
                   </div>
                   
                   <div>
                     <h4 className="font-medium mb-2">Optional Columns:</h4>
                     <ul className="list-disc list-inside text-muted-foreground space-y-1">
-                      <li><code className="text-xs bg-muted px-1 rounded">description</code> - Transaction description</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">party</code> - Payee or payer name</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">bank_remarks</code> - Bank statement remarks</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">account_name</code> - Must match an existing account name</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">category_name</code> - Must match an existing category name</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">transaction_mode</code> - UPI, NEFT, IMPS, RTGS, Cheque, BBPS, EMI, Cash, Card, Other</li>
-                      <li><code className="text-xs bg-muted px-1 rounded">transaction_nature</code> - Money Transfer, Auto Sweep, System Charge, Charge, Reversal, Rewards, Purchase, Income, Other</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnID</code> - Transaction ID (ignored, auto-generated)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnDay</code> - Day of week (e.g., Monday)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">bankRemarks</code> - Bank statement remarks</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">currency</code> - Currency code (default: INR)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">accountID</code> - Account name (must match existing)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">accountType</code> - Account type (ignored)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">relatedTxn</code> - Related transaction ID</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnDescription</code> - Transaction description</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">partyName</code> - Payee or payer name</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnMode</code> - UPI, NEFT, IMPS, RTGS, Cheque, BBPS, EMI, Cash, Card, Other</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnNature</code> - Money Transfer, Auto Sweep, System Charge, Charge, Reversal, Rewards, Purchase, Income, Other</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnCategory</code> - Category name (must match existing)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnSubCategory</code> - Subcategory name (must match existing)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnTag</code> - Tag name (must match existing)</li>
+                      <li><code className="text-xs bg-muted px-1 rounded">txnGroup</code> - Group name (must match existing)</li>
                     </ul>
                   </div>
 
