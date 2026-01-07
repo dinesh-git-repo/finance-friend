@@ -16,35 +16,62 @@ export type Database = {
     Tables: {
       accounts: {
         Row: {
+          account_number: string | null
           account_type: Database["public"]["Enums"]["account_type"]
-          balance: number | null
+          account_variant: string | null
+          card_network: string | null
+          closing_balance: number | null
           created_at: string | null
+          credit_limit: number | null
           currency: string | null
           id: string
           is_active: boolean | null
+          issuer_name: string | null
           name: string
+          network_variant: string | null
+          opening_balance: number | null
+          repayment_day: number | null
+          statement_day: number | null
           updated_at: string | null
           user_id: string
         }
         Insert: {
+          account_number?: string | null
           account_type: Database["public"]["Enums"]["account_type"]
-          balance?: number | null
+          account_variant?: string | null
+          card_network?: string | null
+          closing_balance?: number | null
           created_at?: string | null
+          credit_limit?: number | null
           currency?: string | null
           id?: string
           is_active?: boolean | null
+          issuer_name?: string | null
           name: string
+          network_variant?: string | null
+          opening_balance?: number | null
+          repayment_day?: number | null
+          statement_day?: number | null
           updated_at?: string | null
           user_id: string
         }
         Update: {
+          account_number?: string | null
           account_type?: Database["public"]["Enums"]["account_type"]
-          balance?: number | null
+          account_variant?: string | null
+          card_network?: string | null
+          closing_balance?: number | null
           created_at?: string | null
+          credit_limit?: number | null
           currency?: string | null
           id?: string
           is_active?: boolean | null
+          issuer_name?: string | null
           name?: string
+          network_variant?: string | null
+          opening_balance?: number | null
+          repayment_day?: number | null
+          statement_day?: number | null
           updated_at?: string | null
           user_id?: string
         }
@@ -448,6 +475,10 @@ export type Database = {
         | "Demat Account"
         | "Loan Account"
         | "Insurance Account"
+        | "Overdraft"
+        | "BNPL"
+        | "Demat"
+        | "Personal Loan"
       app_role: "admin" | "moderator" | "user"
       transaction_mode:
         | "UPI"
@@ -609,6 +640,10 @@ export const Constants = {
         "Demat Account",
         "Loan Account",
         "Insurance Account",
+        "Overdraft",
+        "BNPL",
+        "Demat",
+        "Personal Loan",
       ],
       app_role: ["admin", "moderator", "user"],
       transaction_mode: [

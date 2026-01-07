@@ -137,7 +137,7 @@ export default function Accounts() {
         .from('accounts')
         .select('*')
         .eq('user_id', user.id)
-        .order('account_name');
+        .order('name');
 
       if (error) throw error;
       setAccounts(data || []);
@@ -158,7 +158,7 @@ export default function Accounts() {
     try {
       const insertData: any = {
         user_id: user.id,
-        account_name: formData.account_name,
+        name: formData.account_name,
         account_type: formData.account_type,
         opening_balance: parseFloat(formData.opening_balance) || 0,
         closing_balance: parseFloat(formData.opening_balance) || 0,
