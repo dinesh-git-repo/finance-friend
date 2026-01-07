@@ -320,6 +320,19 @@ export default function CSVImportDialog({
   const validCount = parsedData.filter(t => t.isValid).length;
   const invalidCount = parsedData.length - validCount;
 
+  // Aggregate errors for summary
+  const errorSummary = parsedData
+    .filter(t => !t.isValid)
+    .reduce((acc, t) => {
+      t.errors.forEach(error => {
+        acc[error] = (acc[error] || 0) + 1;
+      });
+      return acc;
+    }, {} as Record<string, number>);
+
+  const sortedErrors = Object.entries(errorSummary)
+    .sort((a, b) => b[1] - a[1]);
+
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
@@ -424,6 +437,32 @@ export default function CSVImportDialog({
                   )}
                 </div>
               </div>
+
+              {/* Error Summary */}
+              {sortedErrors.length > 0 && (
+                <div className="bg-expense/5 border border-expense/20 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertCircle className="h-5 w-5 text-expense" />
+                    <h5 className="font-medium text-expense">Error Summary</h5>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    {invalidCount} rows have issues that need to be fixed in your CSV file before importing:
+                  </p>
+                  <div className="space-y-2">
+                    {sortedErrors.map(([error, count]) => (
+                      <div key={error} className="flex items-center justify-between text-sm bg-background/50 rounded px-3 py-2">
+                        <span className="text-foreground">{error}</span>
+                        <Badge variant="outline" className="text-expense border-expense/30">
+                          {count} rows
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    💡 Tip: Fix these issues in your CSV file and re-upload. Valid rows ({validCount}) can still be imported.
+                  </p>
+                </div>
+              )}
 
               <div className="border rounded-lg overflow-hidden">
                 <Table>
