@@ -110,9 +110,16 @@ const HEADER_MAP: Record<string, string> = {
 
 
 
-const VALID_TRANSACTION_TYPES: TransactionType[] = ['Debit', 'Credit'];
 const VALID_MODES: TransactionMode[] = ['UPI', 'NEFT', 'IMPS', 'RTGS', 'Cheque', 'BBPS', 'EMI', 'Cash', 'Card', 'ACH', 'Other'];
 const VALID_NATURES: TransactionNature[] = ['Charge', 'Money Transfer', 'Auto Sweep', 'Reversal', 'Rewards', 'System Charge'];
+
+// Normalize transaction type to exact enum values (case-insensitive)
+const normalizeTransactionType = (type: string): TransactionType | null => {
+  const normalized = type?.trim().toLowerCase();
+  if (normalized === 'debit') return 'Debit';
+  if (normalized === 'credit') return 'Credit';
+  return null;
+};
 
 const SAMPLE_CSV = `txnID,txnDate,bankRemarks,amount,currency,txnType,accountID,txnDescription,partyName,txnMode,txnNature,txnCategory,txnTag,txnGroup
 ,2024-01-15,UPI/123456789,1500.00,INR,Debit,HDFC Savings,Grocery shopping,BigMart,UPI,Charge,Food & Dining,groceries,
@@ -200,7 +207,8 @@ export default function CSVImportDialog({
       const parsedAmount = parseFloat(amountStr);
       if (!amountStr || isNaN(parsedAmount)) errors.push('Valid amount is required');
       
-      if (!row.transaction_type || !VALID_TRANSACTION_TYPES.includes(row.transaction_type as TransactionType)) {
+      const normalizedType = normalizeTransactionType(row.transaction_type);
+      if (!normalizedType) {
         errors.push('Type must be Debit or Credit');
       }
 
@@ -222,7 +230,7 @@ export default function CSVImportDialog({
         transaction_date: row.transaction_date,
         amount: parsedAmount || 0,
         currency: row.currency || undefined,
-        transaction_type: (row.transaction_type as TransactionType) || 'Debit',
+        transaction_type: normalizeTransactionType(row.transaction_type) || 'Debit',
         description: row.description || undefined,
         party: row.party || undefined,
         bank_remarks: row.bank_remarks || undefined,
