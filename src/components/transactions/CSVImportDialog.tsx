@@ -44,9 +44,9 @@ type AccountType = 'Bank Account' | 'Credit Card' | 'Cash' | 'Demat' | 'Loan' | 
 
 interface CSVImportDialogProps {
   userId: string;
-  accounts: { id: string; account_name: string }[];
-  categories: { id: string; category_name: string }[];
-  subcategories: { id: string; subcategory_name: string; category_id: string }[];
+  accounts: { id: string; name: string }[];
+  categories: { id: string; name: string }[];
+  subcategories: { id: string; name: string; category_id: string }[];
   onImportComplete: () => void;
 }
 
@@ -307,7 +307,7 @@ export default function CSVImportDialog({
       if (t.account_name) {
         const key = `account:${t.account_name.toLowerCase()}`;
         if (!seen.has(key)) {
-          const exists = accounts.some(a => a.account_name.toLowerCase() === t.account_name!.toLowerCase());
+          const exists = accounts.some(a => a.name.toLowerCase() === t.account_name!.toLowerCase());
           if (!exists) {
             entities.push({ name: t.account_name, type: 'account', selected: true });
             seen.add(key);
@@ -319,7 +319,7 @@ export default function CSVImportDialog({
       if (t.category_name) {
         const key = `category:${t.category_name.toLowerCase()}`;
         if (!seen.has(key)) {
-          const exists = categories.some(c => c.category_name.toLowerCase() === t.category_name!.toLowerCase());
+          const exists = categories.some(c => c.name.toLowerCase() === t.category_name!.toLowerCase());
           if (!exists) {
             entities.push({ name: t.category_name, type: 'category', selected: true });
             seen.add(key);
@@ -338,8 +338,8 @@ export default function CSVImportDialog({
   };
 
   interface CreatedEntities {
-    accounts: { id: string; account_name: string }[];
-    categories: { id: string; category_name: string }[];
+    accounts: { id: string; name: string }[];
+    categories: { id: string; name: string }[];
   }
 
   const createNewEntities = async (): Promise<CreatedEntities | null> => {
@@ -360,16 +360,14 @@ export default function CSVImportDialog({
           .from('accounts')
           .insert(newAccountsToCreate.map(a => ({
             user_id: userId,
-            account_name: a.name,
+            name: a.name,
             account_type: DEFAULT_ACCOUNT_TYPE,
-            opening_balance: 0,
-            closing_balance: 0,
-          })))
-          .select('id, account_name');
+          })) as any)
+          .select('id, name');
         
         if (error) throw error;
         if (createdAccounts) {
-          updatedAccounts = [...updatedAccounts, ...createdAccounts];
+          updatedAccounts = [...updatedAccounts, ...(createdAccounts as { id: string; name: string }[])];
           setAccounts(updatedAccounts);
         }
       }
@@ -381,13 +379,13 @@ export default function CSVImportDialog({
           .from('categories')
           .insert(newCategoriesToCreate.map(c => ({
             user_id: userId,
-            category_name: c.name,
-          })))
-          .select('id, category_name');
+            name: c.name,
+          })) as any)
+          .select('id, name');
         
         if (error) throw error;
         if (createdCategories) {
-          updatedCategories = [...updatedCategories, ...createdCategories];
+          updatedCategories = [...updatedCategories, ...(createdCategories as { id: string; name: string }[])];
           setCategories(updatedCategories);
         }
       }
@@ -418,13 +416,13 @@ export default function CSVImportDialog({
 
       const transactionsToInsert = validTransactions.map(t => {
         const account = updatedEntities.accounts.find(a => 
-          a.account_name.toLowerCase() === t.account_name?.toLowerCase()
+          a.name.toLowerCase() === t.account_name?.toLowerCase()
         );
         const category = updatedEntities.categories.find(c => 
-          c.category_name.toLowerCase() === t.category_name?.toLowerCase()
+          c.name.toLowerCase() === t.category_name?.toLowerCase()
         );
         const subcategory = subcategories.find(s => 
-          s.subcategory_name.toLowerCase() === t.subcategory_name?.toLowerCase()
+          s.name.toLowerCase() === t.subcategory_name?.toLowerCase()
         );
 
         return {
