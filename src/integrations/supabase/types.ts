@@ -451,6 +451,7 @@ export type Database = {
         | "Cash"
         | "Card"
         | "Other"
+        | "ACH"
       transaction_nature:
         | "Money Transfer"
         | "Auto Sweep"
@@ -612,6 +613,7 @@ export const Constants = {
         "Cash",
         "Card",
         "Other",
+        "ACH",
       ],
       transaction_nature: [
         "Money Transfer",
