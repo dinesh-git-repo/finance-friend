@@ -31,9 +31,8 @@ import {
 } from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Upload, FileText, AlertCircle, CheckCircle2, Download, ChevronDown, ChevronRight, ChevronLeft, Plus, Wallet } from 'lucide-react';
+import { Upload, FileText, AlertCircle, CheckCircle2, Download, ChevronDown, ChevronRight, ChevronLeft, Wallet } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 // Use string literals since enums are being updated
@@ -70,10 +69,9 @@ interface ParsedTransaction {
   errors: string[];
 }
 
-interface NewEntity {
+interface UnmatchedAccount {
   name: string;
-  type: 'account' | 'category';
-  selected: boolean;
+  count: number;
 }
 
 // Header mapping from user's CSV format to our internal format
@@ -86,6 +84,7 @@ const HEADER_MAP: Record<string, string> = {
   'currency': 'currency',
   'txntype': 'transaction_type',
   'accountid': 'account_name',
+  'accountname': 'account_name',
   'accounttype': 'account_type',
   'relatedtxn': 'related_txn',
   'txndescription': 'description',
@@ -108,7 +107,7 @@ const HEADER_MAP: Record<string, string> = {
   'group_name': 'group_name',
 };
 
-const DEFAULT_ACCOUNT_TYPE: AccountType = 'Bank Account';
+
 
 const VALID_TRANSACTION_TYPES: TransactionType[] = ['Debit', 'Credit'];
 const VALID_MODES: TransactionMode[] = ['UPI', 'NEFT', 'IMPS', 'RTGS', 'Cheque', 'BBPS', 'EMI', 'Cash', 'Card', 'ACH', 'Other'];
@@ -127,9 +126,7 @@ export default function CSVImportDialog({
   onImportComplete 
 }: CSVImportDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [accounts, setAccounts] = useState(initialAccounts);
-  const [categories, setCategories] = useState(initialCategories);
-  const [newEntities, setNewEntities] = useState<NewEntity[]>([]);
+  const [unmatchedAccounts, setUnmatchedAccounts] = useState<UnmatchedAccount[]>([]);
   const [parsedData, setParsedData] = useState<ParsedTransaction[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [fileName, setFileName] = useState('');
@@ -279,14 +276,15 @@ export default function CSVImportDialog({
       const parsed = parseCSV(content);
       setParsedData(parsed);
 
-      const detected = detectNewEntities(parsed);
-      setNewEntities(detected);
+      // Detect unmatched accounts (for info only, won't create them)
+      const unmatched = detectUnmatchedAccounts(parsed);
+      setUnmatchedAccounts(unmatched);
 
       const validCount = parsed.filter(t => t.isValid).length;
       const invalidCount = parsed.length - validCount;
 
-      if (detected.length > 0) {
-        toast.info(`Found ${detected.length} new items to create`);
+      if (unmatched.length > 0) {
+        toast.warning(`${unmatched.length} account(s) not found - those transactions will have no account linked`);
       }
 
       if (invalidCount > 0) {
@@ -298,105 +296,22 @@ export default function CSVImportDialog({
     reader.readAsText(file);
   };
 
-  const detectNewEntities = (transactions: ParsedTransaction[]): NewEntity[] => {
-    const entities: NewEntity[] = [];
-    const seen = new Set<string>();
+  const detectUnmatchedAccounts = (transactions: ParsedTransaction[]): UnmatchedAccount[] => {
+    const unmatched: Record<string, number> = {};
 
     transactions.forEach(t => {
-      // Check for new accounts
       if (t.account_name) {
-        const key = `account:${t.account_name.toLowerCase()}`;
-        if (!seen.has(key)) {
-          const exists = accounts.some(a => a.name.toLowerCase() === t.account_name!.toLowerCase());
-          if (!exists) {
-            entities.push({ name: t.account_name, type: 'account', selected: true });
-            seen.add(key);
-          }
-        }
-      }
-
-      // Check for new categories
-      if (t.category_name) {
-        const key = `category:${t.category_name.toLowerCase()}`;
-        if (!seen.has(key)) {
-          const exists = categories.some(c => c.name.toLowerCase() === t.category_name!.toLowerCase());
-          if (!exists) {
-            entities.push({ name: t.category_name, type: 'category', selected: true });
-            seen.add(key);
-          }
+        const exists = initialAccounts.some(a => a.name.toLowerCase() === t.account_name!.toLowerCase());
+        if (!exists) {
+          const key = t.account_name.toLowerCase();
+          unmatched[key] = (unmatched[key] || 0) + 1;
         }
       }
     });
 
-    return entities;
+    return Object.entries(unmatched).map(([name, count]) => ({ name, count }));
   };
 
-  const toggleEntity = (index: number) => {
-    setNewEntities(prev => prev.map((e, i) => 
-      i === index ? { ...e, selected: !e.selected } : e
-    ));
-  };
-
-  interface CreatedEntities {
-    accounts: { id: string; name: string }[];
-    categories: { id: string; name: string }[];
-  }
-
-  const createNewEntities = async (): Promise<CreatedEntities | null> => {
-    const selected = newEntities.filter(e => e.selected);
-    
-    let updatedAccounts = [...accounts];
-    let updatedCategories = [...categories];
-
-    if (selected.length === 0) {
-      return { accounts: updatedAccounts, categories: updatedCategories };
-    }
-
-    try {
-      // Create accounts
-      const newAccountsToCreate = selected.filter(e => e.type === 'account');
-      if (newAccountsToCreate.length > 0) {
-        const { data: createdAccounts, error } = await supabase
-          .from('accounts')
-          .insert(newAccountsToCreate.map(a => ({
-            user_id: userId,
-            name: a.name,
-            account_type: DEFAULT_ACCOUNT_TYPE,
-          })) as any)
-          .select('id, name');
-        
-        if (error) throw error;
-        if (createdAccounts) {
-          updatedAccounts = [...updatedAccounts, ...(createdAccounts as { id: string; name: string }[])];
-          setAccounts(updatedAccounts);
-        }
-      }
-
-      // Create categories
-      const newCategoriesToCreate = selected.filter(e => e.type === 'category');
-      if (newCategoriesToCreate.length > 0) {
-        const { data: createdCategories, error } = await supabase
-          .from('categories')
-          .insert(newCategoriesToCreate.map(c => ({
-            user_id: userId,
-            name: c.name,
-          })) as any)
-          .select('id, name');
-        
-        if (error) throw error;
-        if (createdCategories) {
-          updatedCategories = [...updatedCategories, ...(createdCategories as { id: string; name: string }[])];
-          setCategories(updatedCategories);
-        }
-      }
-
-      return { accounts: updatedAccounts, categories: updatedCategories };
-    } catch (error: any) {
-      console.error('Error creating entities:', error);
-      toast.error(`Failed to create items: ${error.message}`);
-      return null;
-    }
-  };
 
   const handleImport = async () => {
     const validTransactions = parsedData.filter(t => t.isValid);
@@ -408,21 +323,10 @@ export default function CSVImportDialog({
     setIsImporting(true);
 
     try {
-      const updatedEntities = await createNewEntities();
-      if (!updatedEntities) {
-        setIsImporting(false);
-        return;
-      }
-
       const transactionsToInsert = validTransactions.map(t => {
-        const account = updatedEntities.accounts.find(a => 
+        // Match account by name (case-insensitive)
+        const account = initialAccounts.find(a => 
           a.name.toLowerCase() === t.account_name?.toLowerCase()
-        );
-        const category = updatedEntities.categories.find(c => 
-          c.name.toLowerCase() === t.category_name?.toLowerCase()
-        );
-        const subcategory = subcategories.find(s => 
-          s.name.toLowerCase() === t.subcategory_name?.toLowerCase()
         );
 
         return {
@@ -435,8 +339,9 @@ export default function CSVImportDialog({
           party: t.party || null,
           bank_remarks: t.bank_remarks || null,
           account_id: account?.id || null,
-          category_id: category?.id || null,
-          subcategory_id: subcategory?.id || null,
+          // Store category and subcategory as plain text
+          category_name: t.category_name || null,
+          subcategory_name: t.subcategory_name || null,
           tag: t.tag || null,
           group_name: t.group_name || null,
           transaction_mode: t.transaction_mode || null,
@@ -446,7 +351,7 @@ export default function CSVImportDialog({
 
       const { error } = await supabase
         .from('transactions')
-        .insert(transactionsToInsert);
+        .insert(transactionsToInsert as any);
 
       if (error) throw error;
 
@@ -454,7 +359,7 @@ export default function CSVImportDialog({
       setIsOpen(false);
       setParsedData([]);
       setFileName('');
-      setNewEntities([]);
+      setUnmatchedAccounts([]);
       if (fileInputRef.current) fileInputRef.current.value = '';
       onImportComplete();
     } catch (error: any) {
@@ -609,32 +514,22 @@ export default function CSVImportDialog({
                 )}
               </div>
 
-              {/* New Entities to Create */}
-              {newEntities.length > 0 && (
-                <div className="border rounded-lg p-4 space-y-3">
+              {/* Unmatched Accounts Info */}
+              {unmatchedAccounts.length > 0 && (
+                <div className="border border-yellow-500/30 rounded-lg p-4 space-y-2 bg-yellow-500/5">
                   <div className="flex items-center gap-2">
-                    <Plus className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">New items found in CSV</span>
+                    <AlertCircle className="h-4 w-4 text-yellow-600" />
+                    <span className="text-sm font-medium text-yellow-600">Unmatched Accounts</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Select which items to create automatically:
+                    These account names don't match any existing accounts. Transactions will be imported without an account link:
                   </p>
-                  <div className="space-y-2">
-                    {newEntities.map((entity, index) => (
-                      <div key={index} className="flex items-center gap-3">
-                        <Checkbox
-                          id={`entity-${index}`}
-                          checked={entity.selected}
-                          onCheckedChange={() => toggleEntity(index)}
-                        />
-                        <label
-                          htmlFor={`entity-${index}`}
-                          className="flex items-center gap-2 text-sm cursor-pointer"
-                        >
-                          {entity.type === 'account' && <Wallet className="h-4 w-4 text-muted-foreground" />}
-                          {entity.type === 'category' && <Badge variant="outline" className="text-xs">Category</Badge>}
-                          {entity.name}
-                        </label>
+                  <div className="space-y-1">
+                    {unmatchedAccounts.map((acc, index) => (
+                      <div key={index} className="flex items-center gap-2 text-sm">
+                        <Wallet className="h-3 w-3 text-muted-foreground" />
+                        <span>{acc.name}</span>
+                        <Badge variant="secondary" className="text-xs">{acc.count} txns</Badge>
                       </div>
                     ))}
                   </div>

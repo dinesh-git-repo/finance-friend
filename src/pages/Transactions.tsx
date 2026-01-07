@@ -219,7 +219,8 @@ export default function Transactions() {
           t.bank_remarks?.toLowerCase().includes(query) ||
           t.tag?.toLowerCase().includes(query) ||
           t.group_name?.toLowerCase().includes(query) ||
-          t.categories?.category_name?.toLowerCase().includes(query);
+          t.category_name?.toLowerCase().includes(query) ||
+          t.categories?.name?.toLowerCase().includes(query);
         if (!matches) return false;
       }
 
@@ -383,7 +384,7 @@ export default function Transactions() {
                       <SelectContent>
                         {accounts.map((acc) => (
                           <SelectItem key={acc.id} value={acc.id}>
-                            {acc.account_name}
+                            {acc.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -421,7 +422,7 @@ export default function Transactions() {
                       <SelectContent>
                         {categories.map((cat) => (
                           <SelectItem key={cat.id} value={cat.id}>
-                            {cat.category_name}
+                            {cat.name}
                           </SelectItem>
                         ))}
                       </SelectContent>

@@ -306,6 +306,7 @@ export type Database = {
           amount: number
           bank_remarks: string | null
           category_id: string | null
+          category_name: string | null
           created_at: string | null
           currency: string | null
           day: string | null
@@ -316,6 +317,7 @@ export type Database = {
           party: string | null
           related_transaction_id: string | null
           subcategory_id: string | null
+          subcategory_name: string | null
           tag: string | null
           tag_id: string | null
           transaction_date: string
@@ -334,6 +336,7 @@ export type Database = {
           amount: number
           bank_remarks?: string | null
           category_id?: string | null
+          category_name?: string | null
           created_at?: string | null
           currency?: string | null
           day?: string | null
@@ -344,6 +347,7 @@ export type Database = {
           party?: string | null
           related_transaction_id?: string | null
           subcategory_id?: string | null
+          subcategory_name?: string | null
           tag?: string | null
           tag_id?: string | null
           transaction_date: string
@@ -362,6 +366,7 @@ export type Database = {
           amount?: number
           bank_remarks?: string | null
           category_id?: string | null
+          category_name?: string | null
           created_at?: string | null
           currency?: string | null
           day?: string | null
@@ -372,6 +377,7 @@ export type Database = {
           party?: string | null
           related_transaction_id?: string | null
           subcategory_id?: string | null
+          subcategory_name?: string | null
           tag?: string | null
           tag_id?: string | null
           transaction_date?: string

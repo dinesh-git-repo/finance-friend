@@ -10,6 +10,8 @@ interface Transaction {
   party?: string;
   amount: number;
   transaction_type: 'Debit' | 'Credit';
+  category_name?: string | null;
+  subcategory_name?: string | null;
   categories?: { name: string; color?: string } | null;
   accounts?: { name: string; account_type?: string } | null;
   transaction_mode?: string | null;
