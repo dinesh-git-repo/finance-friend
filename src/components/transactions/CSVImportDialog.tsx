@@ -51,6 +51,7 @@ interface CSVImportDialogProps {
 
 interface ParsedTransaction {
   rowIndex: number;
+  txn_id?: string;
   transaction_date: string;
   amount: number;
   currency?: string;
@@ -217,6 +218,7 @@ export default function CSVImportDialog({
 
       transactions.push({
         rowIndex: i + 1,
+        txn_id: row.txn_id || undefined,
         transaction_date: row.transaction_date,
         amount: parsedAmount || 0,
         currency: row.currency || undefined,
@@ -331,6 +333,7 @@ export default function CSVImportDialog({
 
         return {
           user_id: userId,
+          txn_id: t.txn_id || null,
           transaction_date: t.transaction_date,
           amount: t.amount,
           currency: t.currency || 'INR',

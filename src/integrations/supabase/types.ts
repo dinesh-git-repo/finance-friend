@@ -328,6 +328,7 @@ export type Database = {
             | Database["public"]["Enums"]["transaction_nature"]
             | null
           transaction_type: Database["public"]["Enums"]["transaction_type"]
+          txn_id: string | null
           updated_at: string | null
           user_id: string
         }
@@ -358,6 +359,7 @@ export type Database = {
             | Database["public"]["Enums"]["transaction_nature"]
             | null
           transaction_type: Database["public"]["Enums"]["transaction_type"]
+          txn_id?: string | null
           updated_at?: string | null
           user_id: string
         }
@@ -388,6 +390,7 @@ export type Database = {
             | Database["public"]["Enums"]["transaction_nature"]
             | null
           transaction_type?: Database["public"]["Enums"]["transaction_type"]
+          txn_id?: string | null
           updated_at?: string | null
           user_id?: string
         }
