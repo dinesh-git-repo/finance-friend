@@ -30,7 +30,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 import { Upload, FileText, AlertCircle, CheckCircle2, Download, ChevronDown, ChevronRight, ChevronLeft } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -647,56 +647,77 @@ export default function CSVImportDialog({
                 </div>
               )}
 
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-10">Status</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Account</TableHead>
-                      <TableHead>Category</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {parsedData.slice(0, 10).map((t, i) => (
-                      <TableRow key={i} className={!t.isValid ? 'bg-expense/5' : ''}>
-                        <TableCell>
-                          {t.isValid ? (
-                            <CheckCircle2 className="h-4 w-4 text-income" />
-                          ) : (
-                            <div className="group relative">
-                              <AlertCircle className="h-4 w-4 text-expense" />
-                              <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block z-10 w-48 p-2 bg-popover border rounded-md shadow-md text-xs">
-                                {t.errors.map((e, j) => (
-                                  <p key={j} className="text-expense">{e}</p>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">{t.transaction_date}</TableCell>
-                        <TableCell className="font-mono">{t.amount.toFixed(2)}</TableCell>
-                        <TableCell>
-                          <Badge variant={t.transaction_type === 'Credit' ? 'default' : 'secondary'}>
-                            {t.transaction_type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="max-w-[150px] truncate">{t.description || '-'}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{t.account_name || '-'}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{t.category_name || '-'}</TableCell>
+              <ScrollArea className="border rounded-lg">
+                <div className="max-h-[300px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-10 sticky left-0 bg-background z-10">Status</TableHead>
+                        <TableHead className="whitespace-nowrap">Date</TableHead>
+                        <TableHead className="whitespace-nowrap">Day</TableHead>
+                        <TableHead className="whitespace-nowrap">Amount</TableHead>
+                        <TableHead className="whitespace-nowrap">Currency</TableHead>
+                        <TableHead className="whitespace-nowrap">Type</TableHead>
+                        <TableHead className="whitespace-nowrap">Account</TableHead>
+                        <TableHead className="whitespace-nowrap">Description</TableHead>
+                        <TableHead className="whitespace-nowrap">Party</TableHead>
+                        <TableHead className="whitespace-nowrap">Bank Remarks</TableHead>
+                        <TableHead className="whitespace-nowrap">Mode</TableHead>
+                        <TableHead className="whitespace-nowrap">Nature</TableHead>
+                        <TableHead className="whitespace-nowrap">Category</TableHead>
+                        <TableHead className="whitespace-nowrap">Subcategory</TableHead>
+                        <TableHead className="whitespace-nowrap">Tag</TableHead>
+                        <TableHead className="whitespace-nowrap">Group</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                {parsedData.length > 10 && (
+                    </TableHeader>
+                    <TableBody>
+                      {parsedData.slice(0, 20).map((t, i) => (
+                        <TableRow key={i} className={!t.isValid ? 'bg-expense/5' : ''}>
+                          <TableCell className="sticky left-0 bg-background z-10">
+                            {t.isValid ? (
+                              <CheckCircle2 className="h-4 w-4 text-income" />
+                            ) : (
+                              <div className="group relative">
+                                <AlertCircle className="h-4 w-4 text-expense" />
+                                <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block z-20 w-48 p-2 bg-popover border rounded-md shadow-md text-xs">
+                                  {t.errors.map((e, j) => (
+                                    <p key={j} className="text-expense">{e}</p>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs whitespace-nowrap">{t.transaction_date || '-'}</TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">{t.day || '-'}</TableCell>
+                          <TableCell className="font-mono whitespace-nowrap">{t.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">{t.currency || 'INR'}</TableCell>
+                          <TableCell>
+                            <Badge variant={t.transaction_type === 'Credit' ? 'default' : 'secondary'} className="whitespace-nowrap">
+                              {t.transaction_type}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{t.account_name || '-'}</TableCell>
+                          <TableCell className="text-sm max-w-[200px] truncate">{t.description || '-'}</TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">{t.party || '-'}</TableCell>
+                          <TableCell className="text-xs max-w-[200px] truncate text-muted-foreground">{t.bank_remarks || '-'}</TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">{t.transaction_mode || '-'}</TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">{t.transaction_nature || '-'}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{t.category_name || '-'}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{t.subcategory_name || '-'}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{t.tag_name || '-'}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{t.group_name || '-'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <ScrollBar orientation="horizontal" />
+                {parsedData.length > 20 && (
                   <div className="p-2 text-center text-sm text-muted-foreground border-t">
-                    And {parsedData.length - 10} more transactions...
+                    And {parsedData.length - 20} more transactions...
                   </div>
                 )}
-              </div>
+              </ScrollArea>
             </div>
           )}
 
