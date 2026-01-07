@@ -193,18 +193,21 @@ export type Database = {
           created_at: string | null
           id: string
           name: string
+          subcategory_icon: string | null
         }
         Insert: {
           category_id: string
           created_at?: string | null
           id?: string
           name: string
+          subcategory_icon?: string | null
         }
         Update: {
           category_id?: string
           created_at?: string | null
           id?: string
           name?: string
+          subcategory_icon?: string | null
         }
         Relationships: [
           {
@@ -281,10 +284,12 @@ export type Database = {
           day: string | null
           description: string | null
           group_id: string | null
+          group_name: string | null
           id: string
           party: string | null
           related_transaction_id: string | null
           subcategory_id: string | null
+          tag: string | null
           tag_id: string | null
           transaction_date: string
           transaction_mode:
@@ -307,10 +312,12 @@ export type Database = {
           day?: string | null
           description?: string | null
           group_id?: string | null
+          group_name?: string | null
           id?: string
           party?: string | null
           related_transaction_id?: string | null
           subcategory_id?: string | null
+          tag?: string | null
           tag_id?: string | null
           transaction_date: string
           transaction_mode?:
@@ -333,10 +340,12 @@ export type Database = {
           day?: string | null
           description?: string | null
           group_id?: string | null
+          group_name?: string | null
           id?: string
           party?: string | null
           related_transaction_id?: string | null
           subcategory_id?: string | null
+          tag?: string | null
           tag_id?: string | null
           transaction_date?: string
           transaction_mode?:
