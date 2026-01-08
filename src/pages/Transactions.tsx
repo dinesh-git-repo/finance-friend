@@ -126,14 +126,11 @@ export default function Transactions() {
     setIsLoading(true);
 
     try {
+      // Fetch all data separately (no foreign key joins required)
       const [transactionsRes, accountsRes, categoriesRes, subcategoriesRes] = await Promise.all([
         supabase
           .from('transactions')
-          .select(`
-            *,
-            accounts (name, account_type),
-            categories (name, icon)
-          `)
+          .select('*')
           .eq('user_id', user.id)
           .order('transaction_date', { ascending: false }),
         supabase
@@ -150,10 +147,23 @@ export default function Transactions() {
           .select('*'),
       ]);
 
-      if (transactionsRes.data) setTransactions(transactionsRes.data);
       if (accountsRes.data) setAccounts(accountsRes.data);
       if (categoriesRes.data) setCategories(categoriesRes.data);
       if (subcategoriesRes.data) setSubcategories(subcategoriesRes.data);
+
+      // Manually merge account and category data into transactions
+      if (transactionsRes.data) {
+        const accountsMap = new Map((accountsRes.data || []).map(a => [a.id, a]));
+        const categoriesMap = new Map((categoriesRes.data || []).map(c => [c.id, c]));
+        
+        const enrichedTransactions = transactionsRes.data.map(t => ({
+          ...t,
+          accounts: accountsMap.get(t.account_id) || null,
+          categories: categoriesMap.get(t.category_id) || null,
+        }));
+        
+        setTransactions(enrichedTransactions);
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load transactions');
